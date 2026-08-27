@@ -240,3 +240,54 @@ PC SESSION — one command, then carry on exactly as before:
 
 Everything after this entry (including the new README) is only on the new
 remote. Local checkout directory names are unchanged on both machines.
+
+## 2026-08-27 PC - peek-gate ceiling retest DONE; interp 360 WORKS (pacer fixed); online ready, server UP
+
+One deviation from your migration note: this PC went all-in on the new name —
+fresh clone at `C:\code\high-fps-sunshine` with ALL gitignored local state
+(dolphin-src incl. build, bundle-server, saves, textures) MOVED over from the
+old dir. Old `C:\code\high-fps-dolphin` is a husk now. Path constants updated
+in play240/play360interp/benchmark.py (committed). Build gotcha for next time:
+after a tree move, delete `dolphin-src\Build\tmp\` — the nested CMake caches
+embed absolute paths and fail the msbuild external step.
+
+YOUR QUEUED PC ACTION — peek-gated ceiling retest, measured (live play, 60s
+windows, Kris at the controls, EmulationSpeed 6.0):
+- Delfino Plaza ~350-355 VPS, shine-select 359.6 (throttle cap), BIANCO LIVE
+  PLAY 315-317 (was ~170 — the pollution-readback wall is GONE with the gate).
+  Old 303 verdict superseded: peeks were most of the wall, but 360 native is
+  STILL not stable (user-confirmed dips = slow-mo in heavy scenes).
+- 0x5555 HT-affinity experiment: ANSWERED, no effect (313.9 vs 316.7 same
+  scene class; Video thread 84% busy, serialization- not compute-bound).
+- `HiFpsNonBlockingReadbacks = True` (the 0511772 GFX.ini switch — it was
+  default-OFF, so every prior number ran blocking): Video thread 84% -> 40%
+  busy. Now default in GFX.ini.pc.
+
+INTERP 360 (`play360interp.ps1`, first real test ever): initially sagged to
+~122-160 with the host IDLE — the 2026-08-20 "5.6->10.9ms sag" was still
+alive. TWO pacer bugs found in Present.cpp::PresentInterpolatedSubframes:
+(1) the pacing sleep ran BEFORE presenting the blend, so blend+real frame
+presented bunched ~0ms apart (blend got no screen time); (2) the floor-
+tracked interval est included our own injected sleep -> fixed point at
+est = 2x work = HALF SPEED with the host idle. Fix (dolphin-src local
+ca3bcac, distribution patch regenerated + committed): present the blend
+first, sleep BETWEEN blend and real present, subtract the measured injected
+sleep from the raw interval. RESULT: 180x2 dead flat — VPS p1/p50/p99 =
+5.51/5.56/5.61ms over 60s of live play, ~360 presents/sec, CPU thread 27% /
+Video 18%. This is the PC's stable-360 answer pending user feel-verdict
+(ghosting on fast motion still untested). Worth porting to the Mac patch if
+you ever run interp there.
+
+ONLINE — THE BLOCKER IS GONE: Kris hand-transferred bundle-server.zip before
+this session (md5 exact match), it was already expanded, and SMSO.ServerHost
+RUNS ON WINDOWS: dotnet 8.0.23 satisfies your lowered runtimeconfig floor,
+first boot printed listening on TCP+UDP port 27015 (ModBuildId 118).
+`smslaunch` launcher.py now spawns/reuses the server on Windows in the
+127.0.0.1 hosting path (Route A implemented, committed). Remaining before
+you join: (1) Windows Firewall has NO inbound rule for 27015 yet — Kris
+must allow the prompt or pre-authorize (loopback solo test won't exercise
+it); (2) the PC solo ghost test — running it next session-half, will post
+the verdict here. Then: Mac joins 192.168.1.20:27015, BOTH at 120 first,
+then PC -> 240 same session, per your plan. Random trivia: StreamDeck.exe
+connects to localhost:27015 on its own (CS:GO habit?) — harmless, ignore
+the mystery client in the server log.
