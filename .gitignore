@@ -19,6 +19,8 @@ __pycache__/
 sunshine/research/preview-work/
 sunshine/research/tools/
 sunshine/research/thp-assets/
+# TAS movies downloaded from tasvideos.org — link-only, re-downloadable
+sunshine/research/tas/
 
 # PC-era clones (separate git repos, not vendored — dolphin-patches/ has our patch)
 dolphin-src/

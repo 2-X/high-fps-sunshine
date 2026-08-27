@@ -171,3 +171,28 @@ in the scan path) — nothing to port, thanks.
 
 PC run order after the transfer: solo ghost test per `HANDOFF-ONLINE-PAIRING.md` step 5,
 then post here and the Mac joins at `192.168.1.20:27015`.
+
+## 2026-08-24 Mac - peek_gate shipped; M2 holds 240 FLAT; PC 360 retest warranted
+
+fpspatch grew `peek_gate(fps)` (default-on in the stock bundle at every rate;
+`--no-peekgate`): whole-function 30Hz C2 gates on the only two EFB-peek callers in
+the USA dol — TMario::drawSyncCallback 0x8024D17C (the sole GXPeekARGB site: Mario's
+occluded-flag pixel test) and TSunMgr::drawSyncCallback 0x8002E270 (the 17x GXPeekZ
+flare sampler). Gated frames blr with LR intact (SE30 shape); scratch 0x1700/0x1704.
+On Dolphin/Metal each peek is a synchronous pipeline stall; profiled #1 on the Mac.
+
+Mac A/B ladder at a 240 target (M2 MacBook, windowed, Delfino play, 90s windows):
+single-core baseline 136.5 VPS -> peek gate 195 -> gate + CPUThread=True **240 FLAT
+(throttle-capped), correct speed, user-confirmed**. Not yet Ricco-soak-tested (the
+2026-08-22 desync config) — gate cuts cross-thread EFB syncs ~8x, likely relevant.
+
+PC SESSION ACTION: the 5.17x ceiling (HANDOFF-PC §2) and the "360 not reachable"
+verdict were measured WITH peeks firing at 6x into the CPU<->Video lock-step, and
+under dual-core every peek is a cross-thread sync INSIDE the serialized span.
+Re-run the ceiling bench with the peek-gated bundle before trusting the 360 wall;
+stack with the still-queued 0x5555 HT-affinity experiment.
+
+CAVEATS: (1) peek gate is UNCOMMITTED on `fpspatch-generalize` (entangled with the
+in-progress generalization diff) — coordinate before pulling. (2) TRAP for laptop
+benches: macOS fullscreen caps Metal presents at panel refresh (ProMotion 120) even
+with VSync=False — a flat ~119.88 with tight variance is that cap, bench windowed.
