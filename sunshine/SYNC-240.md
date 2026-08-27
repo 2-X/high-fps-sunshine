@@ -278,6 +278,14 @@ Video 18%. This is the PC's stable-360 answer pending user feel-verdict
 (ghosting on fast motion still untested). Worth porting to the Mac patch if
 you ever run interp there.
 
+LATE UPDATE (same evening): user verdict on interp 360 — "WOW THIS IS RUNNING
+WAY BETTER" then, after two more pacer iterations, "it's stable". Flat 180
+logic everywhere incl. Bianco (90s live: 179.2 mean, VPS p99 5.60ms). CAVEAT:
+the stable build's pacer degenerated to zero pacing sleep (blend+real present
+bunched), so whether the panel truly sees 360 distinct images is the open
+question — a deadline-bounded v3 pacer is built but untested. Full state,
+version ladder, and next steps: `sunshine/HANDOFF-360-INTERP.md`.
+
 ONLINE — THE BLOCKER IS GONE: Kris hand-transferred bundle-server.zip before
 this session (md5 exact match), it was already expanded, and SMSO.ServerHost
 RUNS ON WINDOWS: dotnet 8.0.23 satisfies your lowered runtimeconfig floor,

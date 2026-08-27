@@ -694,7 +694,7 @@ index c97fec8..ff505af 100644
 +
  }  // namespace FramebufferShaderGen
 diff --git a/Source/Core/VideoCommon/Present.cpp b/Source/Core/VideoCommon/Present.cpp
-index 41d05f3..e186995 100644
+index 41d05f3..72b7426 100644
 --- a/Source/Core/VideoCommon/Present.cpp
 +++ b/Source/Core/VideoCommon/Present.cpp
 @@ -14,16 +14,27 @@
@@ -767,7 +767,7 @@ index 41d05f3..e186995 100644
    PresentInfo present_info{
        .present_count = m_present_count++,
        .emulated_timestamp = ticks,
-@@ -212,15 +256,209 @@ void Presenter::ViSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height,
+@@ -212,15 +256,227 @@ void Presenter::ViSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height,
  
    video_events.before_present_event.Trigger(present_info);
  
@@ -904,7 +904,8 @@ index 41d05f3..e186995 100644
 +  // "sags to ~120 with the host idle" bug, round two (2026-08-27 playtest:
 +  // v1 floor-tracker held p50 at target but the mean sat at ~159/122 with
 +  // Video thread 40% busy).
-+  DT interval = (present_time - m_prev_distinct_present_time) - m_interp_injected_sleep;
++  const DT raw = present_time - m_prev_distinct_present_time;
++  DT interval = raw - m_interp_injected_sleep;
 +  m_interp_injected_sleep = DT::zero();
 +  const DT lo = std::chrono::milliseconds(2);
 +  const DT hi = std::chrono::milliseconds(60);
@@ -914,6 +915,22 @@ index 41d05f3..e186995 100644
 +  if (m_interp_interval_est < lo)
 +    m_interp_interval_est = lo;
 +  interval = m_interp_interval_est;
++
++  // Pace presents across the FLOOR of the raw distinct spacing (throttle-bound
++  // that is exactly the target, 5.56ms at 180). The sleep budget is bounded by
++  // the frame's own intended_present_time: the normal Present() path sleeps
++  // until that deadline anyway (GetUpdatedPresentationTime), so pacing sleep
++  // spent BEFORE it is free — and sleeping past it (plus a small grace) is
++  // video-thread stall, which is what turned heavy Bianco spots into ~160fps
++  // slow-mo (2026-08-27 playtest). No slack estimator: a v2 slack-cap based on
++  // (floor - est) had a degenerate equilibrium where est drifted up to raw and
++  // the sleep collapsed to zero (blend+real bunched again). The deadline is a
++  // per-frame ground-truth signal instead.
++  DT raw_c = (raw < lo || raw > hi) ? std::chrono::microseconds(16667) : raw;
++  m_interp_raw_floor = std::min(m_interp_raw_floor * 51 / 50, raw_c);
++  if (m_interp_raw_floor < lo)
++    m_interp_raw_floor = lo;
++  const TimePoint sleep_cap = present_time + std::chrono::microseconds(500);
 +
 +  const TimePoint base = Clock::now();
 +
@@ -961,7 +978,8 @@ index 41d05f3..e186995 100644
 +    }
 +    ++presented;
 +    const TimePoint sleep_from = Clock::now();
-+    core_timing.SleepUntil(base + interval * i / K);
++    const TimePoint ideal = base + m_interp_raw_floor * i / K;  // even K*rate cadence
++    core_timing.SleepUntil(std::min(ideal, sleep_cap));  // never past the frame deadline
 +    m_interp_injected_sleep += Clock::now() - sleep_from;
 +  }
 +
@@ -980,7 +998,7 @@ index 41d05f3..e186995 100644
  {
    if (m_immediate_swap_happened_this_field.exchange(true, std::memory_order_relaxed) &&
 diff --git a/Source/Core/VideoCommon/Present.h b/Source/Core/VideoCommon/Present.h
-index 91ba870..aec5c1e 100644
+index 91ba870..49dde9e 100644
 --- a/Source/Core/VideoCommon/Present.h
 +++ b/Source/Core/VideoCommon/Present.h
 @@ -17,6 +17,9 @@
@@ -1009,7 +1027,7 @@ index 91ba870..aec5c1e 100644
    void ProcessFrameDumping(u64 ticks) const;
  
    void OnBackBufferSizeChanged();
-@@ -193,6 +205,28 @@ private:
+@@ -193,6 +205,32 @@ private:
    TimePoint m_next_swap_estimated_time{Clock::now()};
  
    std::atomic_bool m_immediate_swap_happened_this_field{};
@@ -1029,6 +1047,10 @@ index 91ba870..aec5c1e 100644
 +  // call; subtracted from the next raw interval measurement so the estimate
 +  // converges on the true frame cost instead of (cost + our own sleep).
 +  DT m_interp_injected_sleep = DT::zero();
++  // Floor-tracked RAW distinct spacing (sleep included) — the throttle target
++  // when the emu keeps up. Pacing spreads presents across this, but the sleep
++  // budget is capped at (this - m_interp_interval_est), the measured slack.
++  DT m_interp_raw_floor = std::chrono::microseconds(16667);
 +  std::unique_ptr<AbstractShader> m_blend_vs;
 +  std::unique_ptr<AbstractShader> m_blend_ps;
 +  std::unique_ptr<AbstractPipeline> m_blend_pipeline;
