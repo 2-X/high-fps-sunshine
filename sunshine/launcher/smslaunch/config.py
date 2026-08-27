@@ -138,19 +138,49 @@ BSE_FORK_ONLY = {240, 280, 320}                  # need the highfps fork disc
 # Offline (stock/fpspatch): any multiple of 60, G = FPS/60 an integer >= 2.
 STOCK_FPS_SUGGESTED = [120, 180, 240, 360]
 
-# ---- HD textures ("HD portals") — optional per-profile toggle --------------
-# The pruned qashto/razius UHD pack we hand-picked: Delfino M-portal textures
-# (incl. the THP preview movie planes), FLUDD/lives/coins HUD, digits, shine
-# icons, episode-select wordmarks/logos. Vendored in-repo. Both discs are
-# GMSE01, so Dolphin loads it by game id for offline AND online alike.
-#   * Dolphin uses Load/Textures/<gameid>/ IF it exists, else the 3-char
-#     Load/Textures/GMS/ (HiresTextures.cpp GetTextureDirectoriesWithGameId).
-#     So a GMSE01 dir cleanly SHADOWS the older full GMS pack — no double-load.
-#   * We install it as a symlink (no 226MB copy; the git copy is the install).
-#   * HiresTextures/CacheHiresTextures are set per-game in GMSE01.ini
-#     [Video_Settings] (maps to GFX/Settings) so the toggle is scoped to SMS.
+# ---- HD textures — optional per-profile tri-state ("off" | "portals" | "full") --
+# Three modes for the qashto/razius UHD pack:
+#
+#   "off"     — HiresTextures disabled; no pack loaded.
+#   "portals" — Pruned pack: Delfino M-portal textures (incl. the THP preview
+#               movie planes), FLUDD/lives/coins HUD, digits, shine icons,
+#               episode-select wordmarks/logos. Vendored in-repo at
+#               GMSE01-pruned/; installed as a symlink (~226MB effective).
+#   "full"    — Full qashto/razius "SMS 4K 2.0c" pack (~770MB). Lives in
+#               Dolphin's 3-char fallback dir (GMS/). We REMOVE our GMSE01
+#               symlink so Dolphin falls back to GMS and loads the full pack.
+#
+# Both discs are GMSE01, so whatever dir is active covers offline AND online.
+#
+# Shadow mechanic (Dolphin HiresTextures.cpp GetTextureDirectoriesWithGameId):
+#   Dolphin uses Load/Textures/<gameid>/ IF it exists, ELSE the 3-char
+#   Load/Textures/GMS/. So our GMSE01 symlink SHADOWS GMS entirely — the two
+#   packs never stack. "portals" mode installs the GMSE01 link (shadows GMS).
+#   "full" mode removes our GMSE01 link so Dolphin falls back to GMS and sees
+#   the full pack. "off" leaves whatever is on disk alone and just disables the
+#   per-game HiresTextures INI toggle.
+#
+# HiresTextures/CacheHiresTextures are set per-game in GMSE01.ini
+# [Video_Settings] (maps to GFX/Settings) so the toggle is scoped to SMS.
 PRUNED_PACK = SUNSHINE / "textures" / "GMSE01-pruned"
-HIRES_DEST = DOLPHIN_USER / "Load" / "Textures" / "GMSE01"
+HIRES_DEST  = DOLPHIN_USER / "Load" / "Textures" / "GMSE01"
+FULL_PACK_DIR = DOLPHIN_USER / "Load" / "Textures" / "GMS"
+
+
+def _find_full_pack_zip() -> Path | None:
+    """Locate the SMS 4K source zip in sunshine/textures/.
+
+    Preference: '(4K)' on Windows, '(1080p)' elsewhere. Falls back to any
+    match. Returns None if no zip is present (user must supply it)."""
+    candidates = sorted((SUNSHINE / "textures").glob("SMS 4K*.zip"))
+    if not candidates:
+        return None
+    # Prefer the resolution-appropriate variant.
+    preferred_tag = "(4K)" if WIN else "(1080p)"
+    for z in candidates:
+        if preferred_tag in z.name:
+            return z
+    return candidates[0]   # anything beats nothing
 
 
 def engine_for(mode: str) -> str:

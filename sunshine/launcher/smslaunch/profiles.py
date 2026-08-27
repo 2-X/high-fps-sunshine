@@ -20,7 +20,11 @@ def default_profile(name="Default") -> dict:
         "fov": 95,                  # HORIZONTAL FOV, degrees (the normal game number)
         "aspect": "mac",            # mac (16:10) | tv (16:9)
         "ghost": False,             # online only: also spawn the ghost bot
-        "hd_portals": False,        # boot the HD-portal-previews variant disc (both modes)
+        # "off" | "portals" | "full"
+        #   off     — no hires textures
+        #   portals — pruned pack (M-portals, HUD icons; ~226MB vendored symlink)
+        #   full    — full qashto/razius SMS 4K 2.0c pack (~770MB; Load/Textures/GMS)
+        "hd_textures": "off",
         "player_name": "Player",    # online: name sent to the server
         "qol": {k: dflt for k, _lbl, dflt, _pats in C.QOL_CATALOG},
     }
@@ -29,6 +33,15 @@ def default_profile(name="Default") -> dict:
 def normalize(p: dict) -> dict:
     d = default_profile(p.get("name", "Default"))
     d.update({k: p[k] for k in d if k in p and k != "qol"})
+    # --- migrate legacy hd_portals bool → hd_textures tri-state ----------------
+    # The generic d.update loop above only copies keys present in default_profile,
+    # so "hd_textures" (new key) is already handled — but old profiles that have
+    # only "hd_portals" need an explicit lift here.
+    if "hd_textures" not in p and p.get("hd_portals"):
+        d["hd_textures"] = "portals"
+    # Clamp any unrecognised value (hand-edit typos, future rollback) to "off".
+    if d.get("hd_textures") not in ("off", "portals", "full"):
+        d["hd_textures"] = "off"
     q = dict(d["qol"])
     for k, v in (p.get("qol") or {}).items():
         if k in q:

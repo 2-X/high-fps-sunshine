@@ -8,7 +8,7 @@
       "fov": 80,
       "aspect": "mac",
       "ghost": true,
-      "hd_portals": true,
+      "hd_textures": "portals",
       "player_name": "Kris",
       "qol": {
         "camera": true,
@@ -25,7 +25,7 @@
       "fov": 90,
       "aspect": "mac",
       "ghost": true,
-      "hd_portals": false,
+      "hd_textures": "off",
       "player_name": "Kris",
       "qol": {
         "camera": true,
@@ -42,7 +42,7 @@
       "fov": 70,
       "aspect": "tv",
       "ghost": false,
-      "hd_portals": true,
+      "hd_textures": "portals",
       "player_name": "Kris",
       "qol": {
         "camera": true,
@@ -59,7 +59,7 @@
       "fov": 70,
       "aspect": "tv",
       "ghost": false,
-      "hd_portals": true,
+      "hd_textures": "portals",
       "player_name": "Kris",
       "qol": {
         "camera": true,
@@ -76,7 +76,7 @@
       "fov": 80,
       "aspect": "mac",
       "ghost": false,
-      "hd_portals": true,
+      "hd_textures": "portals",
       "player_name": "Kris",
       "qol": {
         "camera": true,
@@ -93,7 +93,7 @@
       "fov": null,
       "aspect": "none",
       "ghost": false,
-      "hd_portals": false,
+      "hd_textures": "off",
       "player_name": "Kris",
       "qol": {
         "camera": false,
@@ -110,7 +110,7 @@
       "fov": 69,
       "aspect": "mac",
       "ghost": false,
-      "hd_portals": false,
+      "hd_textures": "off",
       "player_name": "Kris",
       "qol": {
         "camera": true,
@@ -127,7 +127,7 @@
       "fov": 90,
       "aspect": "mac",
       "ghost": false,
-      "hd_portals": false,
+      "hd_textures": "off",
       "player_name": "Kris",
       "qol": {
         "camera": false,
@@ -144,7 +144,7 @@
       "fov": 70,
       "aspect": "tv",
       "ghost": false,
-      "hd_portals": true,
+      "hd_textures": "portals",
       "player_name": "Kris PC",
       "qol": {
         "camera": true,
@@ -161,7 +161,7 @@
       "fov": 70,
       "aspect": "none",
       "ghost": false,
-      "hd_portals": true,
+      "hd_textures": "portals",
       "player_name": "Kris",
       "qol": {
         "camera": true,

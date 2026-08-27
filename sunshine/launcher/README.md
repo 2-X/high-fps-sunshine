@@ -117,13 +117,17 @@ naming these two options and exits. No cryptic crash.
   fixes are **auto-applied**, not toggles: offline they're baked into the fpspatch
   bundle; online they're the BSE baseline set (particle parity, SE/wipe/anim-rate
   pacing, blue-coin timer, …) enabled for you.
-- **HD portals** - a checkbox (works in both modes). On, the launcher installs
-  our pruned UHD texture pack (Delfino M-portal textures + FLUDD/lives/coins
-  HUD, digits, shine icons, episode-select wordmarks) into Dolphin's
-  `Load/Textures/GMSE01/` and turns on `HiresTextures`/`CacheHiresTextures` for
-  SMS. Both discs are GMSE01, so it applies offline and online alike; the
-  `GMSE01` folder shadows any older full `GMS` pack. Off just disables hires
-  textures for SMS (files stay on disk).
+- **HD textures** - a tri-state selector (works in both modes): **"off"** disables
+  hires textures for SMS (files stay on disk); **"portals"** installs the pruned
+  UHD pack (226MB: Delfino M-portal textures + FLUDD/lives/coins HUD, digits,
+  shine icons, episode-select wordmarks) into Dolphin's `Load/Textures/GMSE01/`
+  as a symlink and enables `HiresTextures`/`CacheHiresTextures` for SMS; **"full"**
+  installs the full qashto/razius "SMS 4K 2.0c" pack to `Load/Textures/GMS/`,
+  auto-extracting from `sunshine/textures/SMS 4K*.zip` on first use (~770MB),
+  and removes the `GMSE01` symlink (which would shadow the GMS folder). On a fresh
+  machine, place the full-pack zip in `sunshine/textures/` before launching in
+  "full" mode; if missing, the launcher prints an error with the expected filename.
+  Both discs are GMSE01, so "portals" applies offline and online alike.
 - **Generate-if-missing, reuse-if-present** - for the offline FPS bundle and the
   FOV code. The preview shows which already exist and which will be built.
 

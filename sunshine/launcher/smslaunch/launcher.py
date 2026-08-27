@@ -427,12 +427,15 @@ def apply(profile: dict, *, log=_noop, force=False):
     ini.set_core("EmulationSpeed", C.emulation_speed(profile["fps"]))
     ini.set_core("AudioPreservePitch", "True")
 
-    # 4. display aspect + HD-texture ("HD portals") toggle ----------------------
-    #    Both go in [Video_Settings] (one rewrite). The HD pack install (symlink)
-    #    happens here too when enabling; disabling just flips HiresTextures off.
+    # 4. display aspect + HD-texture toggle (tri-state: "off"/"portals"/"full") -
+    #    Both go in [Video_Settings] (one rewrite). "portals" installs the GMSE01
+    #    symlink (shadowing GMS) and enables HiresTextures. "full" removes that
+    #    symlink so Dolphin falls back to Load/Textures/GMS (the full 4K pack,
+    #    extracted on first use). "off" disables HiresTextures without removing
+    #    anything. See hdtextures.py for the full shadow-mechanic explanation.
     from . import hdtextures
     video = dict(C.ASPECTS[profile["aspect"]]["video"])
-    video.update(hdtextures.apply(bool(profile.get("hd_portals")), log=log))
+    video.update(hdtextures.apply(profile.get("hd_textures", "off"), log=log))
     ini.set_video(video)
 
     # 4b. Dolphin Widescreen Hack (global GFX.ini). BSE renders widescreen

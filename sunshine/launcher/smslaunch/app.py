@@ -87,10 +87,16 @@ class Launcher(App):
                     for key, label, _d, _p in C.QOL_CATALOG:
                         yield Checkbox(label, id=f"qol_{key}")
                     # HD textures live in this section too. It's a texture-pack
-                    # toggle (not a Gecko code), so it keeps its own hd_portals
-                    # field/wiring — only its checkbox moved in here.
-                    yield Checkbox("HD texture pack — portals + HUD icons",
-                                   id="hd_portals")
+                    # selection (not a Gecko code), so it keeps its own
+                    # hd_textures field/wiring — only its row moved in here.
+                    with Horizontal(classes="row"):
+                        yield Label("HD textures", classes="lbl")
+                        yield Select(
+                            [("Off", "off"),
+                             ("Portals + HUD (pruned, 226MB)", "portals"),
+                             ("Full pack (SMS 4K 2.0c)", "full")],
+                            id="hd_textures", allow_blank=False,
+                        )
                 with Horizontal(classes="row"):
                     yield Button("Save", id="save", variant="success")
                     yield Button("Apply & Launch", id="launch", variant="warning")
@@ -134,7 +140,7 @@ class Launcher(App):
         self.query_one("#aspect", Select).value = p["aspect"]
         self.query_one("#player_name", Input).value = p.get("player_name", "Kris")
         self.query_one("#ghost", Checkbox).value = bool(p["ghost"])
-        self.query_one("#hd_portals", Checkbox).value = bool(p.get("hd_portals"))
+        self.query_one("#hd_textures", Select).value = p.get("hd_textures", "off")
         for key in [k for k, *_ in C.QOL_CATALOG]:
             self.query_one(f"#qol_{key}", Checkbox).value = bool(p["qol"].get(key))
 
@@ -160,7 +166,7 @@ class Launcher(App):
             "aspect": self.query_one("#aspect", Select).value,
             "player_name": i("player_name") or "Kris",
             "ghost": self.query_one("#ghost", Checkbox).value,
-            "hd_portals": self.query_one("#hd_portals", Checkbox).value,
+            "hd_textures": self.query_one("#hd_textures", Select).value,
             "qol": {k: self.query_one(f"#qol_{k}", Checkbox).value
                     for k, *_ in C.QOL_CATALOG},
         }
