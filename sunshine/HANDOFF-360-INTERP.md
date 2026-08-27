@@ -46,17 +46,36 @@ so "true 360" still has one open question.
 | v2.5 (in 3803d10's diff, the RUNNING build) | cap sleep at slack = floor(raw) − est | **degenerate**: est drifts up to raw, slack→0, sleep→0. Result = flat 180 everywhere (user's "stable") but blend+real present **bunched** — effectively plain 180 with an invisible blend |
 | v3 (3803d10 HEAD, **UNTESTED**) | no estimator: sleep to `min(base + floor(raw)*i/K, intended_present_time + 500µs)` — time before the frame's own deadline is free (normal `Present()` sleeps to it anyway), past it is stall | should give even cadence when healthy, zero slowdown when heavy. **Unknown**: how much earliness vs `intended_present_time` the video thread actually has at ViSwap — if ~0, v3 degenerates to v2.5's bunching (safe, but not paced) |
 
+## Present-cadence tooling (added 2026-08-27 late session — READY, unrun)
+
+PresentMon is ALREADY ON THIS MACHINE: NVIDIA FrameView SDK ships it at
+`C:\Program Files\NVIDIA Corporation\FrameViewSDK\bin\PresentMon_x64.exe`
+(PresentMon 2.x CLI; use `--v1_metrics` for the classic columns). ETW needs
+admin — the shell is not elevated and "Performance Log Users" is empty, so a
+capture costs ONE UAC click. **Do not trigger that while Kris is playing**
+(secure-desktop focus steal = the game_io pause incident, UAC edition);
+have Kris run it — the capture itself is passive, play continues through it.
+
+- `research/scripts/pm_capture.ps1 [-Tag v25|-Tag v3] [-Seconds 60]` —
+  self-elevating capture of the live Dolphin → `research/data/pm_<tag>.csv`,
+  then auto-runs the analyzer.
+- `research/scripts/present_cadence.py <csv>` — histograms msBetweenPresents +
+  msBetweenDisplayChange and prints a verdict: BUNCHED (~0/5.6 alternating,
+  blends dropped = v2.5 signature) vs EVEN (~2.8/2.8 = working v3). Tested
+  against synthetic captures of both signatures.
+- `research/scripts/swap_pacer.ps1 -To v3 | -To v25` — the A/B swap, refuses
+  while Dolphin runs, keeps `Dolphin_v25_pacer.exe` backup for rollback.
+
 ## Next steps (in order)
 
-1. **A/B v3**: quit Dolphin, copy the 18:43 exe into `Binary\x64`, run
-   `play360interp.ps1`, play Delfino AND Bianco.
-   `sunshine/research/scripts/live_bench.py --seconds 90` must stay flat
-   (VPS p99 ≈ 5.6ms); user feel-check for dips.
-2. **Measure the real present cadence** — the open question is whether the
-   panel gets 360 evenly-spaced distinct images or 180 bunched pairs. Use
-   Intel **PresentMon** (or RTSS overlay's frametime graph) on Dolphin.exe:
-   v2.5 should show alternating ~0/5.6ms present gaps; a working v3 shows
-   ~2.8/2.8. If v3 still bunches (no earliness at ViSwap), the real fix is
+1. **Capture v2.5 baseline while playing** (no restart needed): Kris runs
+   `pm_capture.ps1 -Tag v25`, one UAC click, keeps playing 60s. Expected:
+   BUNCHED verdict (confirms the v2.5 degenerate analysis with data).
+2. **A/B v3**: quit Dolphin, `swap_pacer.ps1 -To v3`, run `play360interp.ps1`,
+   play Delfino AND Bianco. `live_bench.py --seconds 90` must stay flat
+   (VPS p99 ≈ 5.6ms); user feel-check for dips; `pm_capture.ps1 -Tag v3`
+   for the cadence verdict. Roll back any time with `swap_pacer.ps1 -To v25`.
+   If v3 still bunches (no earliness at ViSwap), the real fix is
    the **present-pacer thread** (render blends into a small ring of scratch
    textures on the video thread; a dedicated thread owns PresentBackbuffer
    timing — `m_swap_mutex` already guards presents). That is the Route-B
