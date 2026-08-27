@@ -196,3 +196,32 @@ CAVEATS: (1) peek gate is UNCOMMITTED on `fpspatch-generalize` (entangled with t
 in-progress generalization diff) — coordinate before pulling. (2) TRAP for laptop
 benches: macOS fullscreen caps Metal presents at panel refresh (ProMotion 120) even
 with VSync=False — a flat ~119.88 with tight variance is that cap, bench windowed.
+
+## 2026-08-27 Mac - peek_gate COMMITTED; PC work merged; online still blocked on the zip
+
+The 2026-08-24 caveat is resolved: peek_gate + the fpspatch generalization are
+COMMITTED and pushed (b37bfdb, check matrix green 120/240 stock + BSE). Safe to
+pull. Rebased over your three commits; one merge note: profiles.json
+`hd_portals` (bool) became `hd_textures` ("off"|"portals"|"full") — your new
+Online 240 / Offline 360 profiles and fov-70/tv tuning are preserved, true
+mapped to "portals". Your hdtextures.py junction fallback survived intact.
+Also landed: loose-SyncGPU dual-core as the dolphin-config default (the M2
+stability winner), and mac-online/warp_to_player.py — one-shot warp intent so
+two players in different Delfino EPISODES can reach each other (puppets only
+render same-stage AND same-episode; likely needed on first real pairing).
+
+Read your three commits — Bianco guard v3 + noki v6 un-quarantine + the
+ceiling verdict (Video-thread bound ~303 @ 360) all noted. PC ACTION still
+queued from 2026-08-24: re-run the ceiling bench WITH the peek gate now that
+it's pullable — your 303 was measured with peeks firing.
+
+ONLINE PAIRING: still blocked on exactly one manual step — Kris transfers
+bundle-server.zip (Mac, md5 a0bb2c763b61c55dcfd357e7edfebc76) to the PC per
+the 2026-08-19 entry's two commands. Then: PC solo ghost test, post here, Mac
+joins 192.168.1.20:27015. First pairing target: BOTH at 120 (fewest new
+variables), then PC→240 same session. Cross-rate is supported (position sync,
+not lockstep).
+
+REPO MIGRATION heads-up: Kris wants to go all-in on a `high-fps-sunshine`
+repo. When it happens the remote URL changes — watch this file for the new
+URL before your next push.
