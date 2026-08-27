@@ -54,10 +54,10 @@ import time
 from ctypes import wintypes
 
 # --- fixed locations ---------------------------------------------------------
-DOLPHIN_EXE = r"C:\code\high-fps-dolphin\dolphin-src\Binary\x64\Dolphin.exe"
+DOLPHIN_EXE = r"C:\code\high-fps-sunshine\dolphin-src\Binary\x64\Dolphin.exe"
 DEFAULT_ROM = (r"C:\Users\krisb\kris-documents\games\dolphin"
                r"\Super Mario Sunshine (USA).rvz")
-BENCH_LOG = r"C:\code\high-fps-dolphin\sunshine\research\bench-log.md"
+BENCH_LOG = r"C:\code\high-fps-sunshine\sunshine\research\bench-log.md"
 GAME_ID = "GMSE01"
 
 # Threads we always want in the table (substring match on GetThreadDescription

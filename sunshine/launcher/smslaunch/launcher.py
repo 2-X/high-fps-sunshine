@@ -533,36 +533,59 @@ def launch(profile: dict, *, log=_noop):
         # GUEST-side on stage entry — the 2026-08-14 "freeze in Delfino / at
         # Wiggler" class. Reuse only a healthy server; restart a spun-up one.
         if WIN:
-            raise RuntimeError(
-                "This machine has no server bundle (SMSO.ServerHost lives on "
-                "the Mac). Set server_addr in config.local.json (or SMS_SERVER) "
-                "to the host's LAN IP to join its game.")
-        sp = subprocess.run(["pgrep", "-f", "SMSO.ServerHost"],
-                            capture_output=True, text=True).stdout.split()
-        if sp:
-            cpu = subprocess.run(["ps", "-p", sp[0], "-o", "pcpu="],
-                                 capture_output=True, text=True).stdout.strip()
-            if float(cpu or 0) > 150:
-                log(f"Server degraded ({cpu.strip()}% CPU) — restarting it fresh.")
-                subprocess.run(["pkill", "-f", "SMSO.ServerHost"])
-                time.sleep(2)
-                sp = []
+            # Windows hosting (Route A, SYNC-240 2026-08-19): the bundle was
+            # hand-transferred from the Mac; dotnet ≥8 runs it unchanged.
+            if not C.SERVER_DLL.exists():
+                raise RuntimeError(
+                    f"No server bundle at {C.BUNDLE_SERVER} — expand "
+                    "bundle-server.zip there (SYNC-240 2026-08-19), or set "
+                    "server_addr/SMS_SERVER to the host's LAN IP to join.")
+            q = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "(Get-CimInstance Win32_Process | Where-Object "
+                 "{ $_.CommandLine -like '*SMSO.ServerHost*' }).ProcessId"],
+                capture_output=True, text=True).stdout.split()
+            if q:
+                log(f"Server already running (pid {q[0]}).")
             else:
-                log(f"Server already running (healthy, {cpu.strip()}% CPU).")
-        if not sp:
-            log("Starting BSMSO server…")
-            _spawn(["/bin/zsh", str(C.RUN_SERVER)], C.MAC_ONLINE,
-                   os.path.join(TMP, "smso-server.log"))
-            time.sleep(3)
-        # The server busy-waits (600%+ CPU with clients attached) and starves
-        # Dolphin below the target FPS. Until the spin is fixed at source, pin
-        # it to lowest priority so the emulator always wins the CPU fight.
-        pids = subprocess.run(["pgrep", "-f", "SMSO.ServerHost"],
-                              capture_output=True, text=True).stdout.split()
-        for pid in pids:
-            subprocess.run(["renice", "19", "-p", pid], capture_output=True)
-        if pids:
-            log("Server deprioritized (nice 19) so Dolphin keeps its FPS.")
+                log("Starting BSMSO server (dotnet SMSO.ServerHost.dll)…")
+                lf = open(os.path.join(TMP, "smso-server.log"), "ab")
+                p = subprocess.Popen(["dotnet", str(C.SERVER_DLL)],
+                                     cwd=str(C.BUNDLE_SERVER),
+                                     stdout=lf, stderr=lf,
+                                     creationflags=0x00004000)  # BELOW_NORMAL
+                log(f"Server pid {p.pid}, deprioritized (below-normal) so "
+                    "Dolphin keeps its FPS. First run: allow the Windows "
+                    "Firewall prompt (27015 TCP+UDP inbound) or the Mac "
+                    "cannot join.")
+                time.sleep(3)
+        else:
+            sp = subprocess.run(["pgrep", "-f", "SMSO.ServerHost"],
+                                capture_output=True, text=True).stdout.split()
+            if sp:
+                cpu = subprocess.run(["ps", "-p", sp[0], "-o", "pcpu="],
+                                     capture_output=True, text=True).stdout.strip()
+                if float(cpu or 0) > 150:
+                    log(f"Server degraded ({cpu.strip()}% CPU) — restarting it fresh.")
+                    subprocess.run(["pkill", "-f", "SMSO.ServerHost"])
+                    time.sleep(2)
+                    sp = []
+                else:
+                    log(f"Server already running (healthy, {cpu.strip()}% CPU).")
+            if not sp:
+                log("Starting BSMSO server…")
+                _spawn(["/bin/zsh", str(C.RUN_SERVER)], C.MAC_ONLINE,
+                       os.path.join(TMP, "smso-server.log"))
+                time.sleep(3)
+            # The server busy-waits (600%+ CPU with clients attached) and starves
+            # Dolphin below the target FPS. Until the spin is fixed at source, pin
+            # it to lowest priority so the emulator always wins the CPU fight.
+            pids = subprocess.run(["pgrep", "-f", "SMSO.ServerHost"],
+                                  capture_output=True, text=True).stdout.split()
+            for pid in pids:
+                subprocess.run(["renice", "19", "-p", pid], capture_output=True)
+            if pids:
+                log("Server deprioritized (nice 19) so Dolphin keeps its FPS.")
         time.sleep(1)
     else:
         log(f"Joining remote server at {server}:{C.SERVER_PORT} (no local "

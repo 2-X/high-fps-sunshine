@@ -12,6 +12,7 @@ EFBToTextureEnable = True
 SkipDuplicateXFBs = True
 XFBToTextureEnable = True
 [Settings]
+HiFpsNonBlockingReadbacks = True
 HiresTextures = False
 CacheHiresTextures = True
 ShowFPS = True

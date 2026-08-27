@@ -141,7 +141,7 @@
       "name": "Online 240",
       "mode": "online",
       "fps": 240,
-      "fov": 70,
+      "fov": 90,
       "aspect": "tv",
       "ghost": false,
       "hd_textures": "portals",
@@ -157,7 +157,7 @@
     {
       "name": "Offline 360",
       "mode": "offline",
-      "fps": 240,
+      "fps": 360,
       "fov": 70,
       "aspect": "none",
       "ghost": false,

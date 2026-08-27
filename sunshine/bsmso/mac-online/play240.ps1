@@ -1,4 +1,4 @@
-# play240.ps1 - Windows launcher for the BSMSO high-fps fork ISO.
+﻿# play240.ps1 - Windows launcher for the BSMSO high-fps fork ISO.
 # Pick a framerate and go:  -Fps 30|60|120|240|280|320
 #
 # The Windows counterpart to play120.sh / the Mac smslaunch TUI.
@@ -39,7 +39,7 @@ param(
 
     [switch]$SkipCodes,
 
-    [string]$Dolphin = "C:\code\high-fps-dolphin\dolphin-src\Binary\x64\Dolphin.exe",
+    [string]$Dolphin = "C:\code\high-fps-sunshine\dolphin-src\Binary\x64\Dolphin.exe",
     [string]$Iso = "C:\Users\krisb\kris-documents\games\dolphin\bsmso-work\BSMSO-GMSE01-highfps.iso"
 )
 

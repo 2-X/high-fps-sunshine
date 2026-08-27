@@ -1,4 +1,4 @@
-# play360interp.ps1 - launch the NEVER-YET-TESTED 360Hz interpolated mode:
+﻿# play360interp.ps1 - launch the NEVER-YET-TESTED 360Hz interpolated mode:
 # locked 180fps game logic + 2:1 frame blending to 360 presents.
 #
 # Background (sunshine\HOWTO-INTERPOLATION-360.md has the full story): native
@@ -19,7 +19,7 @@
 #   * The feature logs to stderr: check %TEMP%\sms-interp.log for
 #     "[FRAME_INTERP] factor = 2" and heartbeat lines.
 $ErrorActionPreference = "Stop"
-$Dolphin = "C:\code\high-fps-dolphin\dolphin-src\Binary\x64\Dolphin.exe"
+$Dolphin = "C:\code\high-fps-sunshine\dolphin-src\Binary\x64\Dolphin.exe"
 $Iso = "C:\Users\krisb\kris-documents\games\dolphin\Super Mario Sunshine (USA).rvz"
 $GameIni = "$env:APPDATA\Dolphin Emulator\GameSettings\GMSE01.ini"
 

@@ -51,6 +51,10 @@ SET_BSE_FPS = MAC_ONLINE / "set_bse_fps.py"
 BRIDGE = MAC_ONLINE / "bridge.py"
 GHOST = MAC_ONLINE / "ghost_bot.py"
 RUN_SERVER = MAC_ONLINE / "run_server.sh"
+# The dedicated server bundle (gitignored; hand-transferred 2026-08 per
+# SYNC-240). Present on BOTH machines now; dotnet ≥8 runs it unchanged.
+BUNDLE_SERVER = SUNSHINE / "bsmso" / "bundle-server"
+SERVER_DLL = BUNDLE_SERVER / "SMSO.ServerHost.dll"
 
 # ---- local override layer --------------------------------------------------
 # Read config.local.json once at import time (file is optional / gitignored).
