@@ -31,12 +31,12 @@ that assumption is exactly how the fixed 1-in-2 particle gate shipped at 180fps:
       FPS/30 rendered frames (se_frame_gate), exactly like the Noki gate —
       supersedes the old per-site cogwheel request gate, which starved the
       keep-alive window and chopped every repeating SE at 2x native rate
-  11. the boid flocking update TBoidLeader::perform → 1 frame in FPS/30
+  11. the boid flocking update TBoidLeader::perform → 1 tick in 2, CONSTANT
       (boid_gate) — fish schools (and the Gelato red coin towed by one) and
-      butterflies take a fixed-size step per CALC_ANIM cue with no delta-time,
-      so the school swims, turns and applies its 400-unit flee-from-Mario
-      force FPS/30 x too often; keyed on the audio pump's frame counter like
-      the Ricco hook gate
+      butterflies take a fixed-size step per CALC_ANIM cue with no delta-time;
+      the cue is ~120 Hz pinned at every G and the native rate is 60 Hz, so
+      this is the JPA particle-parity cadence (substep-counter parity), NOT
+      an FPS/30 divisor — the v1 FPS/30 form played the school 2x slow
 
 Rate-INDEPENDENT, and correct as-is at every G:
   * hooks that READ the framerate global and self-scale — the raw anim-rate
@@ -619,6 +619,58 @@ BGM_DSP_LIMIT = "0440CDB4 00000000"
 # default. See PERF-PLAYBOOK.md "MEASURE FIRST".
 SUN_PROBE = "0402E28C 60000000"
 
+# ---- EFB peek 30Hz gates (the Metal readback stall; HANDOFF-MAC-240) --------
+# Profiled 2026-08-24 on the Mac at a 240 target (single-core, Delfino, user
+# playing): the TOP emulation-thread stall was FramebufferManager::PeekEFBColor
+# -> -[MTLCommandBuffer waitUntilCompleted]. The EFBAccessEnable=False A/B
+# measured the peek cost at ~58 VPS (136.5 -> ~197). Two game-side peek sites
+# exist in the whole USA dol (bl-scan against the bse-fork us.map):
+#
+#   TMario::drawSyncCallback  0x8024D17C — ONE GXPeekARGB per rendered frame at
+#     Mario's screen pos; sets/clears bit0 of this->0x118 (the Mario-occluded
+#     flag) by testing pixel alpha == 0x10. The whole body is that one flag.
+#   TSunMgr::drawSyncCallback 0x8002E270 — guard byte, then the 17x GXPeekZ
+#     TSunModel::getZBufValue sun-flare occlusion sampler (SUN_PROBE's target).
+#
+# Both results are native-30Hz state (an occlusion bit, a flare ratio): gate
+# each whole callback to 1 rendered frame in FPS/30 and let skipped frames
+# hold the last value. Both functions start with mflr r0, so the gated path
+# can blr from the C2 cave with LR still holding the game caller (the SE30
+# gate's proven shape). Clobbers r0/r11/r12/cr0 at function entry — all dead.
+# This supersedes SUN_PROBE (which NOP'd the sampler call and broke the flare);
+# the flare and Mario's occlusion indicator stay visually correct at 30Hz.
+# NOTE not yet wired into the BSE companion (bse_build) — stock bundle only.
+MARIO_PEEK_HOOK = 0x8024D17C   # TMario::drawSyncCallback (map-verified)
+SUN_PEEK_HOOK   = 0x8002E270   # TSunMgr::drawSyncCallback (map-verified)
+PEEK_ORIG       = 0x7C0802A6   # mflr r0 — first insn of BOTH, dol-verified
+MARIO_PEEK_CTR  = 0x1700       # low-arena scratch; slot map at WIPE_CTR
+SUN_PEEK_CTR    = 0x1704       # (16E0/4 noki, 16E8 SE30, 16F4/8 wipe/pump)
+
+def peek_gate(fps):
+    """Gate both EFB-peek draw-sync callbacks to native 30Hz. None when FPS/30
+    is not integral (no exact native cadence exists)."""
+    if fps % 30 or fps < 60:
+        return None
+    n = int(fps // 30)
+    def block(hook, ctr_off):
+        w = [0x3D608000,                                        # lis  r11,0x8000
+             0x80000000 | (12 << 21) | (11 << 16) | ctr_off,    # lwz  r12,ctr(r11)
+             0x398C0001,                                        # addi r12,r12,1
+             0x90000000 | (12 << 21) | (11 << 16) | ctr_off]    # stw  r12,ctr(r11)
+        if n & (n - 1) == 0:
+            w.append(_andi_(12, 12, n - 1))                     # andi. r12,r12,N-1
+        else:                                                   # exact mod for N=6 etc.
+            w += [_li(11, n),                                   # li    r11,N
+                  _divwu(0, 12, 11),                            # divwu r0,r12,r11
+                  _mullw(0, 0, 11),                             # mullw r0,r0,r11
+                  _subf_(0, 0, 12)]                             # subf. r0,r0,r12
+        w += [0x41820008,                                       # beq +8 -> CONT (run)
+              0x4E800020,                                       # blr — gated: skip fn
+              PEEK_ORIG]                                        # CONT: mflr r0
+        return _c2(hook, w)
+    return "\n".join([block(MARIO_PEEK_HOOK, MARIO_PEEK_CTR),
+                      block(SUN_PEEK_HOOK, SUN_PEEK_CTR)])
+
 # ---- Noki Bay pollution-counting 30Hz gate ----------------------------------
 # ~39% of the emulation thread in Noki Ep.1 is blocked in synchronous GPU->CPU
 # readbacks (ReadTexels / GXReadPixMetric / PeekEFBColor) driven by pollution
@@ -972,38 +1024,50 @@ def riccohook_se_gate(fps):
 # outruns Mario's swim speed (user-sighted 2026-08-18, Gelato reef). The same
 # leader drives butterfly clouds — gating fixes their 4x flutter drift too.
 #
-# FIX: hold the update at native 30 Hz. Hook the `cue & CALC_ANIM` test at
+# FIX: hold the update at native 60 Hz. Hook the `cue & CALC_ANIM` test at
 # perform+8 (0x80005D1C: rlwinm. r0,r4,0,30,30, dol-verified) and on gated
-# frames force the test result to EQ (andi. r0,r4,0) so the function's own
+# ticks force the test result to EQ (andi. r0,r4,0) so the function's own
 # guarding beq (+0x14, to its epilogue) exits before any flocking work; pass
-# frames re-execute the original test untouched. Keyed on the audio pump's
-# per-frame counter (AUDIO_PUMP_CTR) like the Ricco hook gate — a per-call
-# tick would divide the cadence by the number of live TBoidLeader instances
-# (fish schools + butterflies per scene), freezing some leaders entirely.
+# ticks re-execute the original test untouched.
+#
+# CADENCE — the v1 mistake: v1 used the Noki-style FPS/30 frame divisor
+# (1-in-4 at 120fps) on the pump counter, on the assumption the native rate
+# was 30 Hz. In-game (2026-08-18) that made the school visibly ~2x SLOW and
+# reaction-lagged — so the native rate is 60 Hz, exactly the JPA precedent:
+# the CALC_ANIM cue tree is dispatched per director substep (~120 Hz pinned
+# at every G by the substep retune), and stock dispatches it at 60 Hz (the
+# 60 Hz direct()/VI field loop), which is why the particle parity fix is the
+# CONSTANT 1-in-2 keyed on the director substep counter. The boid update
+# rides the same cue, so it gets the same gate: parity 2 on gpMarDirector's
+# substep counter (+0x5C) = 60 Hz at every G. A per-frame counter would also
+# be wrong at G>=3 (calls are 120 Hz, frames are 60G Hz — the residues skew).
+# NOT keyed per-call: perform runs once per live TBoidLeader instance per
+# tick (fish schools + butterflies), so a self-ticked counter would divide
+# the cadence by instance count and freeze some leaders outright.
 # Clobbers r11/r12 (dol-verified dead: prologue mflr/stw only) and r0/cr0,
 # both redefined by the test instruction itself on either path. Fail-open:
-# without the pump cave the counter stays 0, the modulo passes every frame,
-# and behavior is exactly stock.
+# null director -> stock test runs.
 BOID_HOOK = 0x80005D1C          # TBoidLeader::perform cue-test (entry + 8)
 BOID_ORIG = 0x548007BD          # rlwinm. r0,r4,0,30,30 (cue & CUE_CALC_ANIM)
+BOID_LWZ_DIRECTOR = 0x818D9FB8  # lwz r12,-0x6048(r13)  gpMarDirector
+BOID_LWZ_SUBSTEP = 0x816C005C   # lwz r11,0x5C(r12)     director substep ctr
 
 def boid_gate(fps):
     """Hold the TBoidLeader flocking update (fish schools + the towed Gelato
-    red coin, butterflies) at native 30 Hz. None when FPS/30 is not integral
-    (no pump counter cadence to key on)."""
-    if fps % 30 or fps < 60:
+    red coin, butterflies) at native 60 Hz: parity 2 on the director substep
+    counter, constant at every G (the JPA particle-parity cadence)."""
+    if fps < 60:
         return None
-    n = int(fps // 30)
-    gate = _rate_gate(n, ctr=11, tmp=0, tmp2=12)
-    words = ([0x3D808000,                                       # lis  r12,0x8000
-              0x80000000 | (11 << 21) | (12 << 16) | AUDIO_PUMP_CTR]  # lwz r11,ctr
-             + gate                                             # cr0 <- ctr % n
-             + [0x4182000C,                                     # beq +0xC: pass frame
-                0x70800000,                                     # gated: andi. r0,r4,0
-                                                                #  -> cr0=EQ, perform's
-                                                                #  own beq exits
-                0x48000008,                                     # b -> branch-back slot
-                BOID_ORIG])                                     # pass: original rlwinm.
+    words = [BOID_LWZ_DIRECTOR,     # lwz    r12,-0x6048(r13)
+             0x280C0000,            # cmplwi r12,0
+             0x41820018,            # beq +0x18: no director -> stock test
+             BOID_LWZ_SUBSTEP,      # lwz    r11,0x5C(r12)
+             0x71600001,            # andi.  r0,r11,1   parity 2 = 60 Hz
+             0x4182000C,            # beq +0xC: even tick -> run the update
+             0x70800000,            # gated: andi. r0,r4,0 -> cr0=EQ, perform's
+                                    #  own beq exits via its epilogue
+             0x48000008,            # b -> branch-back slot
+             BOID_ORIG]             # pass: original rlwinm. r0,r4,0,30,30
     return _c2(BOID_HOOK, words)
 
 
@@ -1685,7 +1749,8 @@ def build(fps, forceopen=True, anmrate_fix=True, substep=True, audio=True,
           stars=True, sun_probe=False, noki=True, poink=True, bluecoin=True,
           cogwheel=True, input_latch_fix=True, select_fix=True, wipe_opt=True,
           turnfix=True, wipe_pace_fix=True, audio_pump=True, thp_pace_fix=True,
-          riccohook=True, wipe_swap=True, shimmer=True, boidfix=True):
+          riccohook=True, wipe_swap=True, shimmer=True, boidfix=True,
+          peekgate=True):
     g = integer_g(fps)
     gate_g = g or 2                            # non-integer G: fall back to 1-in-2
     parts = [base(framerate_word(fps)), particles(gate_g), PROXIMITY_GLOW]
@@ -1743,7 +1808,7 @@ def build(fps, forceopen=True, anmrate_fix=True, substep=True, audio=True,
         if rh:
             parts.append(rh)
     if boidfix:
-        bg = boid_gate(fps)                    # render-rate class: FPS/30 divisor
+        bg = boid_gate(fps)                    # CALC_ANIM class: constant parity 2
         if bg:
             parts.append(bg)
     if noki:
@@ -1776,6 +1841,10 @@ def build(fps, forceopen=True, anmrate_fix=True, substep=True, audio=True,
         parts.append(BLUECOIN)
     if shimmer:                                # catalog item 28: self-gated on 0.5f
         parts.append(SHIMMER)
+    if peekgate:
+        pg = peek_gate(fps)                    # render-rate class: FPS/30 divisor
+        if pg:
+            parts.append(pg)
     if sun_probe:
         parts.append(SUN_PROBE)
     return "\n".join(parts)
@@ -3457,36 +3526,36 @@ def check(bundle, fps=None, bse=False):
                     f"harbor clank retriggers at render rate near the cable hooks "
                     f"(the 240fps 'womp womp womp' report, 2026-08-10)")
 
-    # Boid flocking gate: keys the audio pump's frame counter with the FPS/30
-    # render-rate divisor, forces the cue test to EQ on gated frames (so
-    # perform's own beq exits), and re-executes the original rlwinm. on pass
-    # frames.
+    # Boid flocking gate: CONSTANT parity 2 on the director substep counter
+    # (the JPA particle-parity cadence — native 60 Hz, NOT FPS/30: the v1
+    # FPS/30 form played the school 2x slow, user-sighted 2026-08-18), forces
+    # the cue test to EQ on gated ticks (so perform's own beq exits), and
+    # re-executes the original rlwinm. on pass ticks.
     body = codes.get(("C2", BOID_HOOK))
     if body is not None:
-        n, want_n = _implied_divisor(body, ctr=11), int(fps // 30) if fps % 30 == 0 else None
-        if n != want_n:
-            errs.append(f"boid gate @{BOID_HOOK:08X}: encodes 1-in-{n}, "
-                        f"expected 1-in-{want_n} (FPS/30 = native 30 Hz)")
-        ctr_lwz = 0x80000000 | (11 << 21) | (12 << 16) | AUDIO_PUMP_CTR
-        if ctr_lwz not in body:
-            errs.append(f"boid gate does not read the pump frame counter "
-                        f"0x8000{AUDIO_PUMP_CTR:04X} — a per-call tick divides "
-                        f"the cadence by the number of live TBoidLeader "
-                        f"instances and freezes some schools outright")
+        if BOID_LWZ_DIRECTOR not in body or BOID_LWZ_SUBSTEP not in body:
+            errs.append(f"boid gate @{BOID_HOOK:08X}: does not read the "
+                        f"director substep counter (gpMarDirector+0x5C) — any "
+                        f"per-frame clock skews at G>=3 and a per-call tick "
+                        f"divides the cadence by live TBoidLeader count")
+        if 0x71600001 not in body:
+            errs.append(f"boid gate @{BOID_HOOK:08X}: parity mask andi. "
+                        f"r0,r11,1 absent — the cadence must be the CONSTANT "
+                        f"1-in-2 (native 60 Hz), not a G-derived divisor")
         if 0x70800000 not in body:
             errs.append(f"boid gate @{BOID_HOOK:08X}: no force-fail "
-                        f"andi. r0,r4,0 — gated frames would fall through with "
+                        f"andi. r0,r4,0 — gated ticks would fall through with "
                         f"a stale cue test and still run the flocking update")
         real = [w for w in body if w not in (0, NOP)]
         if real[-1] != BOID_ORIG:
             errs.append(f"boid gate @{BOID_HOOK:08X}: last real word "
                         f"{real[-1]:08X} != the re-executed original "
                         f"{BOID_ORIG:08X} (rlwinm. r0,r4,0,30,30)")
-    elif fps % 30 == 0 and fps >= 60:
-        errs.append(f"boid flocking gate MISSING at {fps:g}fps — fish schools "
-                    f"take fixed-size steps per rendered frame, so the Gelato "
-                    f"reef red-coin school swims and flees Mario at FPS/30 x "
-                    f"speed (user-sighted 2026-08-18)")
+    elif fps >= 60:
+        errs.append(f"boid flocking gate MISSING at {fps:g}fps — the flocking "
+                    f"update runs per ~120 Hz CALC_ANIM tick (2x native), so "
+                    f"the Gelato reef red-coin school swims and flees Mario "
+                    f"too fast to catch (user-sighted 2026-08-18)")
 
     # Audio pump gate: SE processing must not outrun the 120 Hz substep request
     # rate. The gate hooks MSound::mainLoop's ENTRY, so the gated path must be a
@@ -3582,6 +3651,7 @@ def main():
     ap.add_argument("--no-riccohook", action="store_true", help="omit the Ricco hook/gondola slide-clank SE cadence gate (the harbor clank retriggers at render rate: 'womp womp womp, staticy' near the cable hooks at 240fps)")
     ap.add_argument("--no-boidfix", action="store_true", help="omit the boid flocking 30Hz gate (fish schools/butterflies take fixed-size steps per rendered frame: the Gelato reef red-coin school swims and flees Mario at FPS/30 x speed)")
     ap.add_argument("--no-shimmer", action="store_true", help="omit the heat-haze shimmer pace fix (catalog item 28; self-gated on the framerate global != native 0.5f, safe to leave on)")
+    ap.add_argument("--no-peekgate", action="store_true", help="omit the EFB peek 30Hz gates (Mario occlusion GXPeekARGB + sun-flare GXPeekZ sampler at render rate; each peek is a synchronous pipeline stall on Dolphin/Metal — measured ~58 VPS at a 240 target)")
     ap.add_argument("--bse", action="store_true", help="emit the BSE companion bundle (guarded blocks for the Better Sunshine Engine online mod; fps must be 120 or 240 - see bse_supported())")
     ap.add_argument("--sun-probe", action="store_true", help="NOP the sun lens-flare EFB probe (measured no gain; breaks the flare)")
     ap.add_argument("--bare", action="store_true", help="emit hex pairs only, ready for gecko.py --code-file")
@@ -3605,7 +3675,8 @@ def main():
                        turnfix=not a.no_turnfix, wipe_pace_fix=not a.no_wipepace,
                        audio_pump=not a.no_audio_pump, thp_pace_fix=not a.no_thp_pace,
                        riccohook=not a.no_riccohook, wipe_swap=not a.no_wipe_swap,
-                       shimmer=not a.no_shimmer, boidfix=not a.no_boidfix)
+                       shimmer=not a.no_shimmer, boidfix=not a.no_boidfix,
+                       peekgate=not a.no_peekgate)
 
     if a.check:
         nblocks, errs = check(bundle, a.fps, bse=a.bse)
