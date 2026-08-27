@@ -1,5 +1,7 @@
 # high-fps-dolphin: Super Mario Sunshine high-FPS project
 
+> **MOVED:** this project now lives at [2-X/high-fps-sunshine](https://github.com/2-X/high-fps-sunshine) (full history preserved). This repo is archived.
+
 Play Super Mario Sunshine (NTSC-U, GMSE01) at 120fps+ with correct audio, correct
 timers, and correct animations, via a patched Dolphin fork, a curated Gecko code
 stack, and a Textual TUI launcher. Optional widescreen (16:9 / 16:10 including 2D

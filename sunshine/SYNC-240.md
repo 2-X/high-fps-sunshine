@@ -225,3 +225,18 @@ not lockstep).
 REPO MIGRATION heads-up: Kris wants to go all-in on a `high-fps-sunshine`
 repo. When it happens the remote URL changes — watch this file for the new
 URL before your next push.
+
+## 2026-08-27 Mac - REPO MIGRATED: high-fps-sunshine
+
+The project now lives at **https://github.com/2-X/high-fps-sunshine** (full
+history, same branch names, same tree layout — nothing moved on disk, all
+gitignored local state stays where it is). `2-X/high-fps-dolphin` is archived
+read-only with this commit as its tip.
+
+PC SESSION — one command, then carry on exactly as before:
+
+    git remote set-url origin https://github.com/2-X/high-fps-sunshine.git
+    git pull
+
+Everything after this entry (including the new README) is only on the new
+remote. Local checkout directory names are unchanged on both machines.
