@@ -5,8 +5,8 @@ import ctypes, time, collections, sys
 from ctypes import wintypes
 
 DUR = 15.0
-PDB_DIR = r"C:\code\high-fps-dolphin\dolphin-src\Build\x64\Release\Dolphin\bin"
-EXE_DIR = r"C:\code\high-fps-dolphin\dolphin-src\Binary\x64"
+PDB_DIR = r"C:\code\high-fps-sunshine\dolphin-src\Build\x64\Release\Dolphin\bin"
+EXE_DIR = r"C:\code\high-fps-sunshine\dolphin-src\Binary\x64"
 
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 dbghelp = ctypes.WinDLL("dbghelp")
