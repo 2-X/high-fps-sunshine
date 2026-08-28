@@ -361,6 +361,13 @@ def apply(profile: dict, *, log=_noop, force=False):
         ini.add_code(C.PAUSE_JUMP_TITLE, C.PAUSE_JUMP_CODE)
         log(f"Installing ${C.PAUSE_JUMP_TITLE} (pause mid-air)…")
 
+    # 1a3b. QOL "No GP camera recenter": 3-line write shared by both discs (the
+    #       three ground-pound camera recenter sites are base-DOL code, identical
+    #       offline/BSE). Ensure the body exists so the toggle can enable it.
+    if C.GP_CAM_TITLE not in ini.titles():
+        ini.add_code(C.GP_CAM_TITLE, C.GP_CAM_CODE)
+        log(f"Installing ${C.GP_CAM_TITLE} (no ground-pound camera recenter)…")
+
     # 1a4. ALWAYS-ON hardening: the J3D duplicate-entry guard (both discs).
     #      Ensure the body exists; HARDENING_FIXES enables it every launch.
     if C.J3D_GUARD_TITLE not in ini.titles():

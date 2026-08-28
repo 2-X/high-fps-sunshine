@@ -282,6 +282,23 @@ MENU_REPEAT_BSE_RE = re.compile(r"^Menu key-repeat BSE-(\d+) v2 \(static\)$")
 PAUSE_JUMP_TITLE = "Pause while jumping v1"
 PAUSE_JUMP_CODE = "04297AD8 60000000"
 
+# ---- "No GP camera recenter" — a 3-line write shared by both discs -----------
+# Two execFrontRotate_ call sites in the ground-pound handler are NOPed (kills
+# the yaw-snap that snaps the camera behind Mario on hip-drop), and the
+# beq->b at 0x80029E2C skips the hip-attack-mode continuous auto-rotate that
+# calls rotateY_ByStickX_. L-button centering (ctrlLButtonCamera_ @0x800291D0)
+# and all other camera behavior are untouched. Base main.dol code; BSE does NOT
+# relocate these sites, so the three 04 writes serve offline (stock) AND online
+# (BSE) alike. Framerate-independent.
+# Originals verified in research/main.dol (DOL Step 0, 2026-08-28):
+#   0x8002132C = 0x48000B0D, 0x80021554 = 0x480008E5, 0x80029E2C = 0x4182006C.
+GP_CAM_TITLE = "No GP camera recenter v1"
+GP_CAM_CODE = "\n".join([
+    "0402132C 60000000",   # bl execFrontRotate_ -> nop (yaw-snap site 1)
+    "04021554 60000000",   # bl execFrontRotate_ -> nop (yaw-snap site 2)
+    "04029E2C 4800006C",   # beq -> b (skip hip-attack-mode continuous rotate)
+])
+
 # ---- J3D duplicate-entry guard body (see HARDENING_FIXES below) --------------
 # Canonical copy + full RE: research/codes/j3d-dup-entry-guard-v1.txt.
 # Base main.dol code on both discs; framerate-independent; always on.
@@ -397,6 +414,10 @@ QOL_CATALOG = [
     # profiles on backfill; the body is auto-installed by launcher.apply().
     ("pausejump",  "Pause while jumping (mid-air)", False,
      {"stock": r"Pause while jumping v1", "bse": r"Pause while jumping v1"}),
+    # Removes the camera auto-recenter on ground pound (hip drop). Same code both
+    # discs; body is auto-installed by launcher.apply(). Default OFF (preference).
+    ("gpcam",      "No GP camera recenter",          False,
+     {"stock": r"No GP camera recenter v1", "bse": r"No GP camera recenter v1"}),
 ]
 QOL_KEYS = [k for k, *_ in QOL_CATALOG]
 
