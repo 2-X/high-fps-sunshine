@@ -32,16 +32,16 @@ Kris will give you his Tailscale IP — it starts with `100.` (NOT the old
 {
   "iso_dir":     "C:\\sms\\bsmso-work",
   "dolphin_app": "C:\\code\\high-fps-sunshine\\dolphin-src\\Binary\\x64\\Dolphin.exe",
-  "server_addr": "100.x.x.x"
+  "server_addr": "100.117.221.19"
 }
 ```
 
-Kris's Tailscale IP:  **__________________**  ← he fills this in
+Kris's Tailscale IP:  **`100.117.221.19`**  (machine `kriss-macbook-pro-193`)
 
 ## 4. Verify you can reach him BEFORE launching the game
 
 ```powershell
-Test-NetConnection <Kris's 100.x.x.x> -Port 27015
+Test-NetConnection 100.117.221.19 -Port 27015
 ```
 
 `TcpTestSucceeded : True` = you're good, launch the game normally
