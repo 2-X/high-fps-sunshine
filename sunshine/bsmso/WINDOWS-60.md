@@ -105,6 +105,23 @@ is off.
 that did NOT actually install. A silently-dead code list looks identical to a
 working one in the Dolphin UI. Read this first if 60 feels wrong.
 
+## Perf: if it dips (FLUDD spray, busy scenes)
+
+At 60 the CPU/GPU budget is generous, but two things can drag it below 60 at
+*every* rate (they are not rate bugs):
+
+1. **Hot-path log flood.** BSMSO spams `[SMSO]`/`[BSMSO]` OSREPORT diagnostics.
+   If Dolphin's `Config/Logger.ini` has `WriteToFile = True`, every line is a
+   synchronous file write mid-emulation — heaviest during scene loads and
+   FLUDD-heavy moments. Set **`WriteToFile = False`** (and delete a bloated
+   `Logs/dolphin.log`). This was a measurable stall on the Mac test.
+2. **Async shaders + warm cache** — `ShaderCompilationMode = 3` in the per-game
+   INI, then play ~90 s to warm the cache before judging stutter.
+3. **HD texture packs off** while chasing a stable 60; re-enable after.
+
+(2)/(3) are the same knobs as `WINDOWS-120.md`; (1) is the one that most often
+reads as "the game lags when FLUDD comes out."
+
 ## Verify checklist — everything below is NEEDS-TEST at 60
 
 Nothing in the BSE-60 bundle has been in-game confirmed yet (the derivation is

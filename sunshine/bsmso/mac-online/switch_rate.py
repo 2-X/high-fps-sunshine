@@ -61,9 +61,15 @@ CODES_DIR = os.path.join(REPO, "sunshine", "research", "codes")
 NEVER_ENABLE = ("CRASHES", "FREEZES", "Raw anim-rate", "Animal x4", "Force",
                 "UNVERIFIED")
 
-APPDATA = os.environ.get("APPDATA", "")
-GAME_INI = os.path.join(APPDATA, "Dolphin Emulator", "GameSettings", "GMSE01.ini")
-DOLPHIN_INI = os.path.join(APPDATA, "Dolphin Emulator", "Config", "Dolphin.ini")
+if sys.platform.startswith("win"):
+    APPDATA = os.environ.get("APPDATA", "")
+    GAME_INI = os.path.join(APPDATA, "Dolphin Emulator", "GameSettings", "GMSE01.ini")
+    DOLPHIN_INI = os.path.join(APPDATA, "Dolphin Emulator", "Config", "Dolphin.ini")
+else:
+    # macOS user config (matches gecko.py's default target).
+    _SUPP = os.path.expanduser("~/Library/Application Support/Dolphin")
+    GAME_INI = os.path.join(_SUPP, "GameSettings", "GMSE01.ini")
+    DOLPHIN_INI = os.path.join(_SUPP, "Config", "Dolphin.ini")
 
 CODE_RE = re.compile(r"[0-9A-Fa-f]{8} [0-9A-Fa-f]{8}")
 
@@ -78,9 +84,13 @@ def _run(cmd):
 
 
 def dolphin_running() -> bool:
-    out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
-                         capture_output=True, text=True).stdout.lower()
-    return "dolphin.exe" in out
+    if sys.platform.startswith("win"):
+        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True).stdout.lower()
+        return "dolphin.exe" in out
+    # macOS/Linux: the app process is named "Dolphin" (pgrep -x, exact match)
+    return subprocess.run(["pgrep", "-x", "Dolphin"],
+                          capture_output=True).returncode == 0
 
 
 def parse_bundle_text(text):
@@ -399,18 +409,28 @@ def main():
     enable += preserved
 
     # --- force codes (must come first in [Gecko_Enabled] order-wise) ------
-    r = _run([sys.executable, os.path.join(HERE, "bse_force.py"),
-              "--fps", str(args.fps), "--aspect", str(args.aspect),
-              "--install"])
-    sys.stdout.write(r.stdout)
-    if r.returncode != 0:
-        sys.stderr.write(r.stderr)
-        return r.returncode
-
-    force_titles = [f"BSE Force {args.fps} FPS (fork kxe)"]
-    label = {0: "4:3", 2: "16:10", 3: "16:9 WIDE", 4: "21:9", 5: "32:9"}.get(args.aspect)
-    if args.aspect >= 0 and label:
-        force_titles.append(f"BSE Force {label} (fork kxe)")
+    # WINDOWS only: bse_force.py discovers the live mFPSValue/aspect addresses
+    # via winmem (a Win32 ctypes shim) and writes STATIC 04 codes. On macOS the
+    # rate/aspect are forced LIVE after boot by set_bse_fps.py (RAM poke, the
+    # play120.sh flow), so there are no static force titles to install/enable.
+    force_titles = []
+    if sys.platform.startswith("win"):
+        r = _run([sys.executable, os.path.join(HERE, "bse_force.py"),
+                  "--fps", str(args.fps), "--aspect", str(args.aspect),
+                  "--install"])
+        sys.stdout.write(r.stdout)
+        if r.returncode != 0:
+            sys.stderr.write(r.stderr)
+            return r.returncode
+        force_titles = [f"BSE Force {args.fps} FPS (fork kxe)"]
+        label = {0: "4:3", 2: "16:10", 3: "16:9 WIDE", 4: "21:9",
+                 5: "32:9"}.get(args.aspect)
+        if args.aspect >= 0 and label:
+            force_titles.append(f"BSE Force {label} (fork kxe)")
+    else:
+        print("[switch] macOS: skipping static force codes — run set_bse_fps.py "
+              f"--fps {args.fps} --aspect {args.aspect} live after boot "
+              "(play120.sh does this)")
 
     set_enabled(list(dict.fromkeys(force_titles + enable)))
     set_emulation_speed(args.fps)
