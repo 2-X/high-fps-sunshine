@@ -199,7 +199,13 @@ def iso_for(mode: str, fps: int) -> Path:
     if mode == "offline":
         return ISO_OFFLINE
     # online + solo both boot the BSE disc (fork disc for the 240/280/320 rates).
-    return ISO_ONLINE_HIGHFPS if fps in BSE_FORK_ONLY else ISO_ONLINE
+    if fps in BSE_FORK_ONLY:
+        return ISO_ONLINE_HIGHFPS
+    # Clients are distributed ONLY the fork disc, which supports every rate —
+    # fall back to it when the plain BSE disc is absent (2026-08-28, John's
+    # first launch: 120 -> BSMSO-GMSE01.iso -> FileNotFoundError on every
+    # fresh client). Hosts with both discs keep the plain one at <=120.
+    return ISO_ONLINE if ISO_ONLINE.exists() else ISO_ONLINE_HIGHFPS
 
 
 # ---- aspect ----------------------------------------------------------------

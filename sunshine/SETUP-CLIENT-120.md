@@ -1,97 +1,182 @@
-# SETUP — 120fps ONLINE CLIENT (fresh Windows PC)
+# SETUP — 120fps ONLINE CLIENT (fresh Windows PC) — verification-driven
 
-**Audience:** a Claude Code session (or a patient human) on a new Windows machine that
-wants to JOIN a BSMSO online session at 120fps. Written 2026-08-27 for Kris's brother's
-PC and John. The host side (server, port, firewall) already runs on Kris's PC — you
-only need the client stack.
+**Audience:** a Claude Code session (or a careful human) on a new Windows machine
+joining a BSMSO online Super Mario Sunshine session at 120fps. The host (server,
+port 27015 TCP+UDP, firewall) already runs on Kris's PC. Every step below ends
+with a **VERIFY** — do not move on until it passes. Written 2026-08-27/28 for
+Kris's brother's PC (LAN) and John (remote).
 
-## What you need before starting
+## What you need in hand before starting
 
-1. **This repo** (public): `git clone https://github.com/2-X/high-fps-sunshine C:\code\high-fps-sunshine`
-   then `git checkout fpspatch-generalize`. Clone to that EXACT path — several research
-   scripts hardcode it, and matching the host's layout keeps every doc's paths valid.
-2. **`dolphin-hifps-win64.zip`** (~29MB) — the patched Dolphin fork build (gitignored,
-   not in the repo; Kris distributes it — UGREEN share or direct send). Contains
-   `Dolphin.exe` at the zip root. GPL source = `sunshine/dolphin-patches/` on the
-   upstream commit in `UPSTREAM_COMMIT.txt`.
-3. **The game**: `BSMSO-GMSE01-highfps.iso` (Super Mario Sunshine USA with the BSMSO
-   online kxe modules injected). Not distributed with this kit — it contains Nintendo's
-   game. Get it from Kris privately, or build from your own legally-dumped SMS copy
-   (see `sunshine/bsmso/` docs).
-4. **Python 3.12+** on PATH.
-5. A **controller** (Xbox pad works out of the box; keyboard is playable but rough).
+| # | Thing | Where it comes from |
+|---|-------|---------------------|
+| 1 | This repo | public: `https://github.com/2-X/high-fps-sunshine`, branch `fpspatch-generalize` |
+| 2 | `dolphin-hifps-win64.zip` (~29MB) | from Kris (in `sms-online-kit.zip`); the patched fork build, gitignored, NOT in the repo |
+| 3 | `BSMSO-GMSE01-highfps.iso` (~1,392MB) | from Kris privately (WeTransfer/UGREEN, zipped ~1,044MB). **A stock/downloaded SMS ISO will NOT work** — the online mod's kxe modules are injected into this specific disc; the bridge finds nothing on a stock copy |
+| 4 | Git + Python 3.12+ | `winget install Git.Git Python.Python.3.12` |
+| 5 | A controller | Xbox pad = zero config beyond Dolphin's controller dialog |
+| 6 | (remote players only) Radmin VPN or Tailscale | see Network section — Kris must run the same one |
 
-## Install steps
+## Install steps — each with its VERIFY
 
-1. Unzip `dolphin-hifps-win64.zip` into `C:\code\high-fps-sunshine\dolphin-src\Binary\x64\`
-   (so `...\Binary\x64\Dolphin.exe` exists). **The `dolphin-src` folders will NOT
-   exist after cloning — they're gitignored. Create them** (`mkdir
-   C:\code\high-fps-sunshine\dolphin-src\Binary\x64` first, or extract the zip
-   there with "extract to" pointing at that path).
-2. Put the ISO somewhere sane, e.g. `C:\sms\bsmso-work\BSMSO-GMSE01-highfps.iso`.
-3. `pip install -r C:\code\high-fps-sunshine\sunshine\launcher\requirements.txt`
-4. Create `C:\code\high-fps-sunshine\sunshine\launcher\config.local.json`
-   (copy `config.local.json.example`), Windows values:
+**1. Clone the repo to the EXACT path** (scripts reference it):
 
-   ```json
-   {
-     "iso_dir":     "C:\\sms\\bsmso-work",
-     "dolphin_app": "C:\\code\\high-fps-sunshine\\dolphin-src\\Binary\\x64\\Dolphin.exe",
-     "server_addr": "<HOST ADDRESS — see Network below>"
-   }
-   ```
+```powershell
+git clone https://github.com/2-X/high-fps-sunshine C:\code\high-fps-sunshine
+git -C C:\code\high-fps-sunshine checkout fpspatch-generalize
+```
 
-5. Launch once so Dolphin creates its config dir (`%APPDATA%\Dolphin Emulator`), set
-   up your controller in Dolphin's Controllers dialog, then quit.
-6. The real launch:
-   `cd C:\code\high-fps-sunshine\sunshine\launcher; python drive_launcher.py "Online 120"`
-   — it writes the INI (120fps bundle, EmulationSpeed 2.0, 64MB MEM1 override), boots
-   the BSMSO ISO, and starts your bridge automatically.
-7. Pick a save, get INTO A STAGE (Delfino Plaza). The bridge only attaches in a stage —
-   "comm buffer not found" on the title screen is NORMAL, not a failure.
+VERIFY: `git -C C:\code\high-fps-sunshine log --oneline -1` prints a commit, and
+`Test-Path C:\code\high-fps-sunshine\sunshine\launcher\drive_launcher.py` is True.
 
-Success = the other players' Marios appear near you, and yours on their screens.
+**2. Create the Dolphin folder tree and unzip the build into it.** The
+`dolphin-src` tree is gitignored — a fresh clone does NOT contain it; you create it:
 
-## Network — what goes in `server_addr`
+```powershell
+New-Item -ItemType Directory -Force C:\code\high-fps-sunshine\dolphin-src\Binary\x64
+Expand-Archive dolphin-hifps-win64.zip -DestinationPath C:\code\high-fps-sunshine\dolphin-src\Binary\x64
+```
 
-- **Same LAN as the host PC:** the host's LAN IP. As of 2026-08-27 that is
-  **`192.168.4.58`** (it CHANGED from the 192.168.1.20 in older docs — if joining
-  fails, re-ask the host, IPs drift). Port `27015` TCP **and** UDP; the host firewall
-  already allows it.
-- **Remote over the internet (John):** don't expose raw internet unless chosen —
-  pick one with the host:
-  - **Radmin VPN or Tailscale** (both free): host + client install it, join the same
-    network, then `server_addr` = the host's VPN IP. Easiest and safest.
-  - **Port forward**: host forwards 27015 TCP+UDP → 192.168.4.58 on their router and
-    gives you their public IP. Fails silently if the host ISP uses CGNAT.
-  - Note: the host runs NordVPN — that's an outbound tunnel and does not carry inbound
-    game traffic; it is NOT the VPN you join.
+VERIFY: `Test-Path C:\code\high-fps-sunshine\dolphin-src\Binary\x64\Dolphin.exe`
+is True (the exe directly in `x64\`, NOT in a nested subfolder — if Expand-Archive
+nested it, move the contents up one level).
 
-## Gotchas (paid for already — don't re-pay)
+**3. Place the game:**
 
-- Dolphin rewrites `GMSE01.ini` from memory on quit — never hand-edit it while running.
-- BSE cold-boots 30fps/4:3 every launch; the launcher's Gecko writes force the rate.
-  Don't panic at a 30fps title screen.
-- "Cannot find MEM1" while NOT in a booted game is normal (emulation stopped = nothing
-  mapped). Verify the window title shows `GMSE01` before debugging the memory backend.
-- Every player needs a UNIQUE bridge name (the launcher uses the profile's
-  `player_name` — set it to your own name in `sunshine/launcher/profiles.json`,
-  "Online 120" profile, or the puppets collide).
-- Per-player FPS is local (position sync, not lockstep): your 120 happily joins the
-  host's 240.
-- **`GFX FIFO: Unknown Opcode (0x.. @ ..)` desync / crash:** the high-fps hack stresses
-  the FIFO enough to trip a dual-core GPU/CPU-thread race on some clients. The kit's
-  `Dolphin.ini.pc` already ships the fix — loose SyncGPU (`SyncGPU = True`,
-  `SyncGpuMaxDistance = 1000000`, `SyncGpuMinDistance = -1000000` under `[Core]`), which
-  keeps dual-core speed. If you copied an older config or still desync on a weak GPU,
-  add those lines (Dolphin closed — it rewrites the INI on quit), or as a last resort
-  set `CPUThread = False` (single core: no desync, slower).
+```powershell
+New-Item -ItemType Directory -Force C:\sms\bsmso-work
+# put/extract BSMSO-GMSE01-highfps.iso there
+```
 
-## Paste-prompt for a fresh Claude chat on the client PC
+VERIFY: `(Get-Item C:\sms\bsmso-work\BSMSO-GMSE01-highfps.iso).Length` is
+~1,460,000,000 bytes (±1%). A ~4.7GB file is a full-disc dump and wrong; a file
+named anything else is wrong.
 
-> You are setting up this Windows PC as a 120fps BSMSO online client for Super Mario
-> Sunshine. Follow `sunshine/SETUP-CLIENT-120.md` in the repo
-> `2-X/high-fps-sunshine` (branch `fpspatch-generalize`) step by step. I have the
-> dolphin zip and the ISO at: <FILL IN PATHS>. The server address is: <FILL IN>.
-> Verify each step, and when the game is in Delfino Plaza confirm the bridge attached
-> (its log says so) and report what you see.
+**4. Python deps:**
+
+```powershell
+pip install -r C:\code\high-fps-sunshine\sunshine\launcher\requirements.txt
+```
+
+VERIFY: exits without error.
+
+**5. Config.** Create `C:\code\high-fps-sunshine\sunshine\launcher\config.local.json`:
+
+```json
+{
+  "iso_dir":     "C:\\sms\\bsmso-work",
+  "dolphin_app": "C:\\code\\high-fps-sunshine\\dolphin-src\\Binary\\x64\\Dolphin.exe",
+  "server_addr": "<see Network section>"
+}
+```
+
+- LAN (same house as Kris): `"192.168.4.58"`
+- Remote over VPN (John): Kris's **Radmin/Tailscale IP** (Kris reads it off his
+  VPN client and tells you; Radmin IPs look like `26.x.x.x`)
+
+VERIFY: `python -c "import json; print(json.load(open(r'C:\code\high-fps-sunshine\sunshine\launcher\config.local.json'))['server_addr'])"` prints the address.
+
+**6. Network reachability** (the step most "it doesn't connect" reports actually are):
+
+- LAN: nothing to install.
+- Remote: install the SAME VPN as Kris (Radmin VPN: create/join his network with
+  the name+password he gives you; Tailscale: sign in, he shares his machine).
+
+VERIFY: `Test-NetConnection <server_addr> -Port 27015` shows `TcpTestSucceeded : True`.
+If False, the game cannot work — stop and fix this first (wrong IP, VPN not
+connected, or Kris's server/firewall down). Do NOT proceed to debug Dolphin.
+
+**7. First Dolphin run — controller + config dir:**
+
+Run `C:\code\high-fps-sunshine\dolphin-src\Binary\x64\Dolphin.exe` once, set up
+your controller (Controllers → Port 1 → Standard Controller → map your pad),
+then **quit Dolphin fully**.
+
+Then add the FIFO-desync guard (with Dolphin CLOSED — it rewrites INIs on quit):
+in `%APPDATA%\Dolphin Emulator\Config\Dolphin.ini` under `[Core]`, ensure:
+
+```ini
+SyncGPU = True
+SyncGpuMaxDistance = 1000000
+SyncGpuMinDistance = -1000000
+```
+
+(High-fps stresses the FIFO into a dual-core "GFX FIFO: Unknown Opcode" crash on
+some machines; loose SyncGPU prevents it at ~no speed cost. Template:
+`sunshine/dolphin-config/Dolphin.ini.pc`.)
+
+**User-directory trap (John hit this):** Dolphin's user dir is not reliably
+`%APPDATA%\Dolphin Emulator` — a legacy `Documents\Dolphin Emulator` from an old
+install silently wins, and then every INI edit lands in a file the emulator
+never reads. Check for it; if present, rename it away:
+
+```powershell
+if (Test-Path "$([Environment]::GetFolderPath('MyDocuments'))\Dolphin Emulator") {
+  Rename-Item "$([Environment]::GetFolderPath('MyDocuments'))\Dolphin Emulator" "Dolphin Emulator.OLD"
+}
+```
+
+VERIFY: `%APPDATA%\Dolphin Emulator\Config\Dolphin.ini` exists and contains the
+three lines; no `Documents\Dolphin Emulator` folder exists; Dolphin is not
+running. (Cross-check after step 9: the launcher's settings visibly took —
+window title shows the game, fps counter far above 30 in-game.)
+
+**8. Your player name** — every player needs a UNIQUE one. In
+`C:\code\high-fps-sunshine\sunshine\launcher\profiles.json`, find the profile
+named `"Online 120"` and set its `"player_name"` to YOUR name (e.g. `"John"`).
+
+VERIFY: `python -c "import json; print([p['player_name'] for p in json.load(open(r'C:\code\high-fps-sunshine\sunshine\launcher\profiles.json'))['profiles'] if p['name']=='Online 120'])"` prints your name.
+
+**9. Launch:**
+
+```powershell
+cd C:\code\high-fps-sunshine\sunshine\launcher
+python drive_launcher.py "Online 120"
+```
+
+The launcher writes the game INI (120fps bundle + perf gates + guards +
+EmulationSpeed 2.0 + 64MB MEM1 override), boots the BSMSO ISO, and starts your
+bridge automatically.
+
+VERIFY (in the launcher output): a line `Enabled N codes:` that includes
+`$J3D duplicate-entry guard v3`, `$EFB peek 30Hz gate BSE-120`, and
+`$Noki pollution 30Hz gate BSE-120 v6` — plus `Starting bridge (name=<YOU>, fps=120)…`.
+
+**10. Get in the game:** pick a save file, walk into **Delfino Plaza**. The
+bridge only attaches inside a stage — "comm buffer not found" on the title
+screen is NORMAL and not a failure.
+
+FINAL VERIFY: other players' Marios appear near you, and yours appears on their
+screens. Solo check while nobody else is on:
+`python C:\code\high-fps-sunshine\sunshine\bsmso\mac-online\winmem.py --verify-write`
+(run while standing in the Plaza) reports success.
+
+## Troubleshooting — in order of likelihood
+
+| Symptom | Cause / fix |
+|---|---|
+| `Test-NetConnection` port 27015 False | Wrong `server_addr`, VPN not joined, or host down. Fix before anything else. Kris's LAN IP CHANGED 2026-08-27: `192.168.4.58` (older docs said 192.168.1.20 — dead). |
+| Title screen runs at 30fps / 4:3 | Normal. BSE cold-boots 30fps; the rate is forced once you're in-game. |
+| "comm buffer not found" / "cannot find MEM1" | You're on the title screen or emulation stopped. Be IN A STAGE; window title must contain `GMSE01`. |
+| `GFX FIFO: Unknown Opcode` crash | Step 7's SyncGPU lines missing. Add them (Dolphin closed). Last resort: `CPUThread = False` (slower, bulletproof). |
+| Other players frozen in place | Their side disconnected/relaunched — restart YOUR bridge (relaunch via step 9). Known bridge limitation. |
+| Codes don't seem active after hand-editing INIs | Dolphin rewrites `GMSE01.ini` from memory on quit — never edit while it runs; the launcher manages it, prefer step 9 over hand edits. |
+| INI edits have NO effect at all (not even wrong ones) | Legacy `Documents\Dolphin Emulator` dir is shadowing `%APPDATA%` — see the user-directory trap in step 7. |
+| Double/triple jump nearly impossible at 120 | Known engine bug, not your setup: the jump-chain window shrinks with the BSE rate (`sunshine/HANDOFF-JUMPCHAIN-BUG.md`). Fix in progress — pull the repo for updates. |
+| fps struggles at 120 | Make sure the step-9 VERIFY showed the two perf gates (peek + Noki v6) enabled — they are the difference between ~always-120 and Bianco slideshows. Pull the repo if missing (`git pull`), relaunch. |
+
+## Handoff prompt for the AI on the client PC — paste this into a fresh Claude Code chat
+
+> You are setting up this Windows PC as a 120fps BSMSO online client for Super
+> Mario Sunshine, following `sunshine/SETUP-CLIENT-120.md` in the repo
+> `2-X/high-fps-sunshine` (branch `fpspatch-generalize`) — clone the repo first
+> if it isn't at `C:\code\high-fps-sunshine` yet, then open that file and follow
+> it EXACTLY, running every VERIFY and not advancing past a failed one.
+> My materials: dolphin-hifps-win64.zip is at <FILL IN>, the BSMSO ISO (or its
+> zip) is at <FILL IN>. My player name is <FILL IN>. The server address is
+> <FILL IN — 192.168.4.58 on Kris's LAN, or Kris's Radmin/Tailscale IP if I'm
+> remote; if I don't know it, stop and tell me to ask Kris>.
+> Steps 6 and 7 need my involvement (VPN join, controller mapping) — tell me
+> exactly what to do when you reach them. When the game is in Delfino Plaza,
+> confirm the bridge attached and give me a short status report: enabled-codes
+> check, network check, and what you see.
