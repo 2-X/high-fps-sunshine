@@ -79,6 +79,13 @@ Success = the other players' Marios appear near you, and yours on their screens.
   "Online 120" profile, or the puppets collide).
 - Per-player FPS is local (position sync, not lockstep): your 120 happily joins the
   host's 240.
+- **`GFX FIFO: Unknown Opcode (0x.. @ ..)` desync / crash:** the high-fps hack stresses
+  the FIFO enough to trip a dual-core GPU/CPU-thread race on some clients. The kit's
+  `Dolphin.ini.pc` already ships the fix — loose SyncGPU (`SyncGPU = True`,
+  `SyncGpuMaxDistance = 1000000`, `SyncGpuMinDistance = -1000000` under `[Core]`), which
+  keeps dual-core speed. If you copied an older config or still desync on a weak GPU,
+  add those lines (Dolphin closed — it rewrites the INI on quit), or as a last resort
+  set `CPUThread = False` (single core: no desync, slower).
 
 ## Paste-prompt for a fresh Claude chat on the client PC
 
