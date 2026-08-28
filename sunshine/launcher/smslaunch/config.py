@@ -415,7 +415,12 @@ WIDESCREEN_WIPE_FIX = r"Widescreen wipe fix v2"    # aspect-independent curtain 
 # skips the redundant insert at the corruption site: structurally impossible
 # to self-loop, zero behavior change otherwise, engine-independent.
 HARDENING_FIXES = [
-    ("j3dguard", r"J3D duplicate-entry guard", True),
+    # ^-anchored: the BSE-240 Noki v6 title MENTIONS the guard by name ("safe
+    # with the J3D duplicate-entry guard — REQUIRES it enabled"), and the
+    # unanchored regex resolved to THAT title first (2026-08-27 night: launcher
+    # enabled the unsafe noki gate thinking it was the guard, guard silently
+    # dropped — the exact freeze pairing the guard exists to prevent).
+    ("j3dguard", r"^J3D duplicate-entry guard", True),
 ]
 
 #   key, regex, verified
@@ -431,6 +436,12 @@ BASELINE_FIXES = [
     ("starfix",   r"HUD StarFix v4 BSE",                     True),
     ("wipe",      r"Wipe pace 30Hz gate BSE",                True),
     ("se",        r"SE frame-process 30Hz gate BSE",         True),
+    # The two synchronous EFB-peek draw-sync callbacks (Mario occlusion +
+    # sun-flare sampler) gated to native 30Hz — the 2026-08-27 offline unlock
+    # (Bianco ~170 -> ~315) ported behind the standard BSE guard. Enabled on
+    # the offline in-game verdict + guard safety; first BSE in-game pass
+    # 2026-08-27 night (Bianco online sat at the ~170 pre-gate ceiling).
+    ("peekgate",  r"EFB peek 30Hz gate BSE",                 True),
     ("shimmer",   r"Heat-haze shimmer pace",                 True),
     ("gameclock", r"Game-clock fix v15 BSE",                 True),
     # rate-suffixed scale in the title: x0.25 at 120, x0.125 at 240
