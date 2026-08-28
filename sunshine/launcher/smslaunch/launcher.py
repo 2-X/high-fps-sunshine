@@ -107,10 +107,20 @@ def baseline_titles(ini: Ini, engine: str, log=_noop, fps=None) -> list[str]:
                 log(f"  ! baseline '{key}' is UNVERIFIED — not auto-enabled "
                     f"(${t})")
             continue
+        if key == "substep" and (fps is None or fps <= 120):
+            # 240-only, NEVER enable at <=120 even when the title resolves
+            # (the 240 companion installed alongside makes it resolve). Its
+            # bundled input latch predicts "substep frame" as accumulator
+            # remainder >= 5; under granularity(2) at 120 budget == quantum
+            # so the remainder is invariant (0 at entry) and the latch eats
+            # EVERY trigger edge on TMarDirector-vtable directors — the
+            # 2026-08-28 BSMSO start-menu lockout (HANDOFF-START-MENU-BUG.md).
+            if t:
+                log(f"  - baseline 'substep' resolves (${t}) but is 240-only "
+                    f"— skipped at {fps}fps")
+            continue
         if t:
             out.append(t)
-        elif key == "substep" and (fps is None or fps <= 120):
-            pass          # only emitted above 120 — absence is correct there
         else:
             log(f"  !! baseline fix '{key}' (/{pat}/) matched NO [Gecko] code "
                 "— the online kit is missing a correctness fix!")

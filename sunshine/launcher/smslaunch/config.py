@@ -434,9 +434,14 @@ BASELINE_FIXES = [
     # The >120 game-speed fix: vanilla's substep scheduler runs the first
     # substep of every frame unconditionally, so above 120 the sim rides the
     # render rate (2x fast at 240 — PC 2026-08-19). Emitted by fpspatch --bse
-    # only at fps > 120; its constants are 120Hz-sim-correct at every BSE
-    # rate, so enabling it at 120 (where the title resolves because the 240
-    # companion is installed alongside) is harmless-correct.
+    # only at fps > 120, and launcher.baseline_titles enforces that scope:
+    # NEVER enabled at <=120 even when the title resolves (240 companion
+    # installed alongside). The old "harmless-correct at every rate" claim
+    # was FALSE — the granularity/anmrate 04s are rate-neutral, but the
+    # bundled v9 input latch (thresh 5, a G=3 constant) reads an accumulator
+    # remainder that is invariant-0 at 120 (budget == quantum), so it zeroes
+    # every trigger edge on TMarDirector-vtable directors: the 2026-08-28
+    # BSMSO start-menu lockout (HANDOFF-START-MENU-BUG.md).
     ("substep",   r"Substep 120Hz sim pin BSE",              True),
     ("particle",  r"Particle parity BSE",                    True),
     ("starfix",   r"HUD StarFix v4 BSE",                     True),

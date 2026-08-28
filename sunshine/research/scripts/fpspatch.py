@@ -2847,6 +2847,17 @@ def _check_bse(codes, n_c2, errs, fps=120):
             if ("04", addr) in codes:
                 errs.append(f"substep pin 04 @{addr:08X} present at {fps}fps — "
                             f"the pin is only emitted above 120")
+        # The pin's C2s are the actively harmful half at <=120: the input
+        # latch's thresh-5 predicate (a G=3 constant) sees an invariant-0
+        # accumulator remainder when budget == quantum (120fps) and zeroes
+        # every trigger edge on TMarDirector-vtable directors — the
+        # 2026-08-28 BSMSO start-menu lockout.
+        for addr, what in ((0x802A600C, "input latch"),
+                           (0x80299958, "zero-substep")):
+            if ("C2", addr) in codes:
+                errs.append(f"substep pin {what} C2 @{addr:08X} present at "
+                            f"{fps}fps — eats trigger edges below 240; the "
+                            f"pin is only emitted above 120")
 
     # a. mFPSValue poke - STOCK kxe only (the 240 fork shifts its module data,
     #    so 0x8051E528 is not mFPSValue there; see bse_build).

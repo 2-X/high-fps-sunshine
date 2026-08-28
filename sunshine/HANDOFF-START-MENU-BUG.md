@@ -1,7 +1,48 @@
 # BUG: BSMSO start menu — Start interrupts idle demos but save select unreachable
 
-**Reported 2026-08-28 (late night) by Kris, PC, Online 120.** Status: UNDIAGNOSED,
-prime suspect identified below. Written as the handoff for a fresh session.
+**Reported 2026-08-28 (late night) by Kris, PC, Online 120.** Status: prime
+suspect ANALYTICALLY CONFIRMED (2026-08-28 session, arithmetic below) and the
+launcher fix is COMMITTED — awaiting the 30-second live A/B for field confirm,
+then kit-snapshot regen (step 4).
+
+## 2026-08-28 static analysis — the arithmetic that indicts the pin
+
+The "harmless-correct at 120" claim in config.py was FALSE. The pin's three
+parts at 120:
+
+- granularity(2) 04s: rate-neutral (budget 1200/120 = 10 vs quantum 10 = one
+  substep every frame, same as stock at 120). Harmless — as claimed.
+- ANMRATE_STUB: returns 0.5f = stock 1/G at G=2. Harmless — as claimed.
+- **v9 input latch (C2 @0x802A600C): BROKEN at 120.** Its predicate
+  ("substep frame iff accumulator remainder >= 5", thresh 5 = the G=3
+  constant, fpspatch.py:312-320) assumes the 240 pattern where the remainder
+  alternates 0/5. At 120, budget == quantum, so every frame substeps and the
+  remainder is INVARIANT at its entry value — typically 0. `0 < 5` → the
+  latch classifies EVERY frame as a skip frame: pad read skipped, all four
+  pads' mTrigger/mRelease zeroed, permanently, on any director passing the
+  TMarDirector vtable check. fpspatch's own input_latch() refuses to emit at
+  G=2 for exactly this class of reason (returns None, fpspatch.py:318-320),
+  and _check_bse has always required the pin ABSENT at 120.
+
+Start-interrupts-demos-but-not-save-select fits: the attract demos are
+gameplay scenes (TMarDirector — latch active, edges eaten), interrupt paths
+that poll held/HW pad state still fire, while the save-select advance needs
+the eaten trigger edge.
+
+## Fix landed (this session)
+
+- `launcher/smslaunch/launcher.py baseline_titles()`: substep row is now
+  rate-scoped — never enabled at fps <= 120 even when the title resolves;
+  logs a loud skip line instead. Verified by dry-run: 120 skips, 240 enables.
+- `launcher/smslaunch/config.py`: falsified comment replaced with the
+  analysis.
+- `research/scripts/fpspatch.py _check_bse()`: <=120 branch now also errors
+  on the pin's C2s (input latch @0x802A600C, zero-substep @0x80299958), not
+  just the 04s. Both `--bse --check` bundles still pass.
+
+The fix takes effect on the next `drive_launcher.py "Online 120"` apply. The
+live INI still has the pin ENABLED from tonight's launch — either do the
+live A/B untick (below) or just relaunch through the launcher.
 
 ## Symptom
 
