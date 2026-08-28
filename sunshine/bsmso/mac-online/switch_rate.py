@@ -100,7 +100,10 @@ def generate_bundle(fps):
     """The companion bundle for `fps`, fresh from fpspatch --bse (the source of
     truth -- a stored bundle bites silently when stale).  Returns (text, origin)
     or (None, reason) when the rate has no companion (fpspatch explains why:
-    280/320 have no exact divisors; 30/60 are native rates)."""
+    280/320 have no exact divisors; 30 is the native tick rate). FPS_60 IS a
+    real companion rate now (2x native — see bse_supported): it carries the
+    render-class + anmrate + substep-class bugs, minus the parity/boid/clock
+    fixes that only bite at FPS_120+."""
     r = _run([sys.executable, FPSPATCH, str(fps), "--bse"])
     if r.returncode == 0 and r.stdout.strip():
         return r.stdout, "fpspatch --bse (fresh)"

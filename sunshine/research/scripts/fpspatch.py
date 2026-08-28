@@ -1955,6 +1955,17 @@ def BSE_PARITY_DIVISOR(fps):
     return 2
 
 def bse_parity(fps=120):
+    # FPS_60 (G=1): CALC_ANIM fires on the last of the frame's TWO substeps —
+    # once per rendered frame = the native 60 Hz. SMSGetAnmFrameRate = 60/60 =
+    # 1.0 there, so fctiwz truncates to ONE calc (not zero): the emitters are
+    # neither frozen (the FPS_120 fctiwz(0.5)=0 bug) nor doubled — JPA already
+    # runs at exactly the native 60 Hz. Emitting the gate would be actively
+    # WRONG: the CONSTANT-2 mask samples the 120 Hz substep counter (+0x5C,
+    # which steps by 2 per frame at FPS_60) at the once-per-frame CALC_ANIM, so
+    # its low bit is a fixed phase — the gate would either freeze JPA or run it
+    # unchanged by luck. So there is no parity block at FPS_60.
+    if fps < 120:
+        return None
     n = BSE_PARITY_DIVISOR(fps)
     if n & (n - 1) or n < 2:
         raise SystemExit(f"BSE parity divisor {n} must be a power of two >= 2")
@@ -2224,7 +2235,14 @@ def bse_starfix(fps=120):
 def bse_boid(fps=120):
     """boid_gate wrapped in the BSE guard: fish schools + the towed Gelato red
     coin (and butterfly clouds) held at native 60 Hz, CONSTANT parity 2 on the
-    director substep counter, only while BSE runs at float(G)."""
+    director substep counter, only while BSE runs at float(G).
+
+    None at FPS_60: TBoidLeader::perform is CALC_ANIM-paced, and CALC_ANIM runs
+    at the native 60 Hz at FPS_60 (once per rendered frame) — the schools are
+    already at native speed, and the CONSTANT-2 gate would degenerate exactly
+    like bse_parity's (same +0x5C substep counter sampled once per frame)."""
+    if fps < 120:
+        return None
     body = [BOID_LWZ_DIRECTOR,      # lwz    r12,-0x6048(r13)
             0x280C0000,             # cmplwi r12,0
             0x41820018,             # beq +0x18: no director -> stock test
@@ -2586,25 +2604,37 @@ def bse_select_gate(fps=120):
 
 def bse_supported(fps):
     """(ok, reason). A rate is emittable as a BSE companion iff:
-      1. FPS % 60 == 0 and G = FPS/60 >= 2      — BSE writes float(G) to the
+      1. FPS % 60 == 0 and G = FPS/60 >= 1      — BSE writes float(G) to the
          framerate global; every guard compares against it with a bare `lis`,
-         so float(G) must have a zero low half (true for every integer G).
+         so float(G) must have a zero low half (true for every integer G,
+         including float(1.0) = 0x3F800000 at FPS_60).
       2. N = FPS/30 is a POWER OF TWO           — the 30Hz-class divisors
          (noki / wipe / SE / blue-coin keep ratio) are emitted as
          `andi. rX,ctr,N-1`, and the anmrate scale is built from log2(N) exact
          halvings.  A non-power-of-two N would need _rate_gate's 4-word modulo
          form, which shifts every hand-computed target_word in the BSE
          builders, AND an anmrate divisor with no exact fmuls chain.
-    That admits 120 and 240 (and 480).  It rejects 180 (N = 6), and it rejects
-    the fork kxe's 280 / 320 outright: 280/60 and 320/60 are not integers, so
-    280/30 = 9.33 and 320/30 = 10.67 — there is no integer frame divisor, the
-    game-clock fix has no exact shift (timerfix() already returns None), and
-    float(280/60) = 0x40955555 has a non-zero low half, so even the 5-word
-    guard prologue cannot be built with one `lis`.  Those two rates need a
-    different (reciprocal-multiply) design and are deliberately NOT emitted."""
+    That admits 60 (BSE FPS_60), 120 (FPS_120), 240 (fork FPS_240) and 480.
+    It rejects 180 (N = 6), and it rejects the fork kxe's 280 / 320 outright:
+    280/60 and 320/60 are not integers, so 280/30 = 9.33 and 320/30 = 10.67 —
+    there is no integer frame divisor, the game-clock fix has no exact shift
+    (timerfix() already returns None), and float(280/60) = 0x40955555 has a
+    non-zero low half, so even the 5-word guard prologue cannot be built with
+    one `lis`.  Those two rates need a different (reciprocal-multiply) design
+    and are deliberately NOT emitted.
+
+    FPS_60 (G = 1) is the "known-good 60fps" community rate: still 2x native
+    30fps, so it carries the render-class frame-counted bugs (divisor N = 2),
+    the anmrate 2x-fast bugs (scale 30/60 = 0.5) and the substep-class bugs
+    (SIM = 120 Hz, keep ratio 4 — see bse_sim_fps).  It does NOT carry the
+    particle-parity / boid CALC_ANIM bugs (CALC_ANIM runs at the native 60 Hz
+    at FPS_60, so SMSGetAnmFrameRate = 60/60 = 1.0 truncates to one calc, not
+    zero — the emitters are neither frozen nor doubled): bse_parity/bse_boid
+    return None at 60 (see there).  Nor the timebase clock bug (EmulationSpeed
+    = 1, real-time clocks: timerfix() returns None)."""
     f = int(fps)
-    if f != fps or f % 60 or f // 60 < 2:
-        return False, f"{fps:g} is not an integer multiple of 60 with G >= 2"
+    if f != fps or f % 60 or f // 60 < 1:
+        return False, f"{fps:g} is not an integer multiple of 60 with G >= 1"
     n = f // 30
     if n & (n - 1):
         return False, f"FPS/30 = {n} is not a power of two"
@@ -2612,16 +2642,21 @@ def bse_supported(fps):
 
 
 def bse_sim_fps(fps):
-    """The SIM (substep) rate under the BSE companion. Vanilla's TMarDirector
-    scheduler integrates at 120 Hz MAX: budget = 600/int(60*G) per frame with
-    a 5-per-substep cost, but the FIRST substep of every frame is
-    UNCONDITIONAL in the DOL (there is no zero-substep path). 120 is therefore
-    the highest rate vanilla paces correctly — at 240 the sim rode the render
-    rate and the game ran exactly 2x fast (PC playtest 2026-08-19). Above 120
-    the bse_substep() section pins the sim at 120 Hz (stock-kit machinery),
-    so SUBSTEP-paced divisors derive from min(fps, 120) while render/audio/
-    timebase-paced ones keep deriving from fps."""
-    return min(int(fps), 120)
+    """The SIM (substep) rate under the BSE companion: a CONSTANT 120 Hz at
+    every supported rate. Vanilla's TMarDirector scheduler integrates at
+    120 Hz: budget = 600/int(60*G) per frame with a 5-per-substep cost and an
+    UNCONDITIONAL first substep, so it runs TWO substeps/frame at FPS_60
+    (10 budget) and ONE at FPS_120 (5 budget) — 120 Hz either way — and
+    bse_substep() pins the same 120 Hz above 120 (at 240 the un-pinned sim rode
+    the render rate and the game ran 2x fast, PC playtest 2026-08-19).
+
+    So SUBSTEP-paced divisors (blue-coin keep ratio, shimmer stored rate,
+    jump-chain window) are 120/30 = 4 at EVERY rate, INCLUDING FPS_60. The old
+    min(fps, 120) form happened to be right at 120/240 but returned 60 at
+    FPS_60, halving those divisors (spray coins would vanish 2x fast, shimmer
+    pulse 2x fast). Render/audio/timebase-paced divisors keep deriving from the
+    real fps, not from this."""
+    return 120
 
 
 def bse_substep(fps):
@@ -2778,6 +2813,8 @@ def bse_build(fps):
                          f"enable without an in-game menu pass)", sel))
     out = []
     for title, body in sections:
+        if not body:                 # None/empty: fix inapplicable at this rate
+            continue                 #   (FPS_60 drops parity, boid, clock, pin)
         out.append(title)
         out.append(body)
     return "\n".join(out)
@@ -2944,21 +2981,31 @@ def _check_bse(codes, n_c2, errs, fps=120):
         errs.append("stock 04 write to 0x804167B8 present in the BSE bundle — BSE "
                     "rewrites it every frame; drop it")
 
-    # b. Particle parity — byte-identical to the proven live-INI blocks.
-    for hook in PARTICLE_HOOKS:
-        body = codes.get(("C2", hook))
-        want = next(b for k, a, b in _iter_codes(
-            _bse_parity_block(f"C2{hook & 0x01FFFFFF:06X}", fps).replace(
-                "70600001", f"7060{BSE_PARITY_DIVISOR(fps) - 1:04X}")))
-        if body != want:
-            errs.append(f"BSE parity @{hook:08X}: not byte-identical to the proven "
-                        f"guarded parity block for {fps}fps")
-        elif not _has_bse_guard(body, fps):
-            errs.append(f"BSE parity @{hook:08X}: guard prologue absent")
-        pn = _implied_divisor(body, ctr=3)
-        if pn != BSE_PARITY_DIVISOR(fps):
-            errs.append(f"BSE parity @{hook:08X}: encodes 1-in-{pn}, expected "
-                        f"1-in-{BSE_PARITY_DIVISOR(fps)}")
+    # b. Particle parity — byte-identical to the proven live-INI blocks. ABSENT
+    #    at FPS_60: CALC_ANIM runs at the native 60 Hz there, so the emitters
+    #    are neither frozen nor doubled and the CONSTANT-2 gate would degenerate
+    #    (see bse_parity). Assert the three hooks are NOT written.
+    if fps < 120:
+        for hook in PARTICLE_HOOKS:
+            if ("C2", hook) in codes:
+                errs.append(f"BSE parity @{hook:08X} present at {fps}fps — "
+                            f"CALC_ANIM is native 60 Hz at FPS_60; the gate "
+                            f"freezes/halves JPA. Drop it (bse_parity → None)")
+    else:
+        for hook in PARTICLE_HOOKS:
+            body = codes.get(("C2", hook))
+            want = next(b for k, a, b in _iter_codes(
+                _bse_parity_block(f"C2{hook & 0x01FFFFFF:06X}", fps).replace(
+                    "70600001", f"7060{BSE_PARITY_DIVISOR(fps) - 1:04X}")))
+            if body != want:
+                errs.append(f"BSE parity @{hook:08X}: not byte-identical to the proven "
+                            f"guarded parity block for {fps}fps")
+            elif not _has_bse_guard(body, fps):
+                errs.append(f"BSE parity @{hook:08X}: guard prologue absent")
+            pn = _implied_divisor(body, ctr=3)
+            if pn != BSE_PARITY_DIVISOR(fps):
+                errs.append(f"BSE parity @{hook:08X}: encodes 1-in-{pn}, expected "
+                            f"1-in-{BSE_PARITY_DIVISOR(fps)}")
 
     # c. Noki gate + copy gate — guard on every block, divisor 4 on the gated ones.
     noki_hooks = [NOKI_OBJ_CALL[0], NOKI_DRAIN_CALL[0], NOKI_TEX_CALL[0],
@@ -3077,7 +3124,13 @@ def _check_bse(codes, n_c2, errs, fps=120):
     #      as the last real word (guard-fail convergence), and the parity is the
     #      CONSTANT 1-in-2 (andi. r0,r11,1) — NEVER an fps-scaled divisor.
     body = codes.get(("C2", BOID_HOOK))
-    if body is None:
+    if fps < 120:
+        if body is not None:
+            errs.append(f"BSE boid gate @{BOID_HOOK:08X} present at {fps}fps — "
+                        f"CALC_ANIM is native 60 Hz at FPS_60, so the schools "
+                        f"already run at native speed; the CONSTANT-2 gate would "
+                        f"degenerate. Drop it (bse_boid → None)")
+    elif body is None:
         errs.append(f"BSE boid gate @{BOID_HOOK:08X} missing — the Gelato reef "
                     f"red-coin fish school outruns Mario at BSE {fps}fps")
     else:
@@ -3117,8 +3170,16 @@ def _check_bse(codes, n_c2, errs, fps=120):
 
     # h. Game-clock fix v15 — SELF-GATED (no BSE guard). Assert the block reads
     #    the framerate global 0x804167B8 and compares against 2.0f, then blr's.
+    #    ABSENT at FPS_60: timerfix() returns None at G=1 (EmulationSpeed = 1,
+    #    so OSCheckStopwatch runs at real time and the clocks are already
+    #    correct — there is nothing to divide).
     tfx = codes.get(("C2", 0x80348180))
-    if tfx is None:
+    if fps < 120:
+        if tfx is not None:
+            errs.append(f"BSE timerfix @0x80348180 present at {fps}fps — "
+                        f"EmulationSpeed=1 at FPS_60, clocks are real-time; "
+                        f"dividing ticks by 1 is a no-op at best. Drop it")
+    elif tfx is None:
         errs.append("BSE bundle: game-clock fix v15 @0x80348180 missing")
     else:
         # lis r5,0x8041 ; lwz r5,0x67B8(r5)
@@ -3921,7 +3982,9 @@ def main():
         print("OK" if not errs else "FAILED")
         sys.exit(0 if not errs else 1)
 
-    if integer_g(a.fps) is None:
+    if not a.bse and integer_g(a.fps) is None:
+        # (The --bse builder handles FPS_60 explicitly — it omits the parity /
+        # substep gates that this warning is about — so it is not emitted there.)
         print(f"# WARNING: {a.fps:g}/60 is not an integer >= 2 — the emitter and substep "
               f"gates fall back to 1-in-2 and will NOT hold 60 Hz at this rate.",
               file=sys.stderr)

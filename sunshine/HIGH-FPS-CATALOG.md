@@ -552,6 +552,23 @@ the companion alongside the stock 120 bundle: same C2 hook addrs.**
 **Still open under BSE:** live tests of all of the above, blue-coin recal (9), Poink v14
 re-test (12), SE ear-test (15), walk/run AnimId capture (35), PC 240 BLOCKED (36).
 
+**2026-08-28 (BSE-60 companion):** `fpspatch.py --bse` generalized to emit an
+**FPS_60** companion bundle (`bse_supported` now admits G=1; `bse_sim_fps`
+corrected to the CONSTANT 120 Hz it always was under BSE — the old `min(fps,120)`
+under-counted the substep-class divisors at 60). The "known-good 60 fps ISO" is
+BSE FPS_60 = 2x native, so it carries the render-class (divisor **2**), anmrate
+(**×0.5**) and substep-class (blue-coin 1-of-4, shimmer 0.25, bird k2,
+jump-chain ×4) bugs — but NOT the particle-parity/boid (CALC_ANIM is native
+60 Hz at FPS_60 → `bse_parity`/`bse_boid` return None), the game-clock
+(EmulationSpeed=1 → `timerfix` None) or the substep-pin fixes. `--check` asserts
+those three are absent. Artifact `research/codes/bse60-companion-v1.txt`;
+Windows handoff `bsmso/WINDOWS-60.md`; the whole PC chain
+(`play240.ps1 -Fps 60` → `switch_rate.py --fps 60`) already accepted 60 and now
+produces a correct bundle. NEEDS-TEST: nothing at FPS_60 has been booted;
+highest-risk call is the parity omission (watch for frozen/half-speed particles).
+No custom Dolphin build needed for audio at 60 (EmulationSpeed=1 → stock audio
+is correct).
+
 **2026-08-13:** BSE regression day. Root-caused the "60fps 2x speed" (BSE cold-boots
 FPS_30/aspect-0 every launch; the prior session ended with the working old-ISO+bridge setup
 torn down for fork-ISO testing). New tooling: `set_bse_fps.py` (no-stage RAM poke,
