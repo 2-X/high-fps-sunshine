@@ -51,6 +51,19 @@ SET_BSE_FPS = MAC_ONLINE / "set_bse_fps.py"
 BRIDGE = MAC_ONLINE / "bridge.py"
 GHOST = MAC_ONLINE / "ghost_bot.py"
 RUN_SERVER = MAC_ONLINE / "run_server.sh"
+
+# Character skins (BSMSO CharacterPack, see mac-online/skins.py). Loaded by
+# file path — mac-online is not a package and must stay importable standalone.
+def _load_skins_mod():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "bsmso_skins", MAC_ONLINE / "skins.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+SKINS_MOD = _load_skins_mod()
+SKIN_NAMES = SKINS_MOD.SKIN_NAMES        # ["birdo", ..., "luigi", ..., "yoshi"]
 # The dedicated server bundle (gitignored; hand-transferred 2026-08 per
 # SYNC-240). Present on BOTH machines now; dotnet ≥8 runs it unchanged.
 BUNDLE_SERVER = SUNSHINE / "bsmso" / "bundle-server"

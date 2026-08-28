@@ -26,6 +26,10 @@ def default_profile(name="Default") -> dict:
         #   full    — full qashto/razius SMS 4K 2.0c pack (~770MB; Load/Textures/GMS)
         "hd_textures": "off",
         "player_name": "Player",    # online: name sent to the server
+        # online: character skin (BSMSO CharacterPack) — a skins.py name
+        # ("luigi") or raw 8-hex id. Needs the pack on the disc
+        # (bsmso/mac-online/skins_install.py); missing pack = retail fallback.
+        "skin": "mario",
         "qol": {k: dflt for k, _lbl, dflt, _pats in C.QOL_CATALOG},
     }
 
@@ -49,6 +53,12 @@ def normalize(p: dict) -> dict:
     d["qol"] = q
     if d["mode"] not in ("online", "solo", "offline"):
         d["mode"] = "online"
+    # Skin: unknown names/typos fall back to retail rather than crashing the
+    # bridge launch later (resolve_skin raises there, loudly).
+    try:
+        C.SKINS_MOD.resolve_skin(d.get("skin", "mario"))
+    except ValueError:
+        d["skin"] = "mario"
     # FPS: BSE (online + solo) snaps to a native BSE value. Offline is any
     # multiple of 60, floor 60 (60 = native, no bundle; >=120 = fpspatch bundle).
     if C.engine_for(d["mode"]) == "bse":

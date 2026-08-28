@@ -600,10 +600,12 @@ def launch(profile: dict, *, log=_noop):
     else:
         log(f"Joining remote server at {server}:{C.SERVER_PORT} (no local "
             f"server spawn — make sure the host machine's game is up).")
-    log(f"Starting bridge (name={profile['player_name']}, fps={profile['fps']})…")
+    skin = profile.get("skin", "mario")
+    log(f"Starting bridge (name={profile['player_name']}, fps={profile['fps']}, "
+        f"skin={skin})…")
     _spawn([sys.executable, str(C.BRIDGE), "--server", server,
             "--name", profile["player_name"], "--fps", str(profile["fps"]),
-            "--aspect", str(bse_aspect)], C.MAC_ONLINE,
+            "--aspect", str(bse_aspect), "--skin", skin], C.MAC_ONLINE,
            os.path.join(TMP, "bridge.log"))
     if profile["ghost"]:
         log("Starting ghost bot…")

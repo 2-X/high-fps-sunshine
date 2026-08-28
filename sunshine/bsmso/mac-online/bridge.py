@@ -21,6 +21,7 @@ from typing import Optional
 
 from gcmem import DolphinMem, find_dolphin_pid
 from netclient import NetClient, JoinError
+from skins import resolve_skin, encode_model_id, skin_name, SKIN_NAMES
 from protocol import (
     PlayerSnapshot,
     MAGIC,
@@ -232,9 +233,14 @@ class Bridge:
 
     def __init__(self, mem: DolphinMem, server: str, name: str,
                  port: int = DEFAULT_PORT, fps: int = 120,
-                 aspect: int = BSE_ASPECT_WIDE):
+                 aspect: int = BSE_ASPECT_WIDE, skin: str = ""):
         self._mem   = mem
         self._name  = name
+        # CharacterPack model id (skins.py): 8B ASCII hex, zeros = retail.
+        # Sent in the JoinRequest and written to LocalMarioModelId @1297; the
+        # game loads /data/bsmso_models/<id>.arc from the disc (retail
+        # fallback if the pack is missing there — see skins_install.py).
+        self._model_id = encode_model_id(skin)
         self._server = server
         self._port   = port
         self._client: Optional[NetClient] = None
@@ -253,6 +259,9 @@ class Bridge:
 
         # Dirty-diff state for remote snapshots (PROTOCOL.md §D.1)
         self._last_remote: dict[int, bytes] = {}
+        # Dirty-diff state for RemoteMarioModelIds (@1305, stride 8): the
+        # roster is re-mirrored every loop; only changed slots get written.
+        self._last_remote_models: dict[int, bytes] = {}
 
         # Roster-HUD state: the launcher writes a "Connected" event the first
         # time each remote slot appears — this is the game's "a player joined"
@@ -287,9 +296,13 @@ class Bridge:
                 self._known_slots.add(slot)
                 name = self._roster_name(slot) or snap.name
                 self._emit_roster_connected(slot, name)
-                # Give the slot a (retail) model id so the game has one to load.
+                # Seed the slot's model id from the roster (retail zeros if
+                # unknown) so the puppet spawns with the right skin; the
+                # per-loop _sync_remote_model_ids keeps it current after that.
+                mid = self._roster_model_id(slot)
+                self._last_remote_models[slot] = mid
                 self._mem.write_comm_subregion(
-                    COMM_MARIO_MODEL_IDS_OFFSET + 8 + slot * 8, b'\x00' * 8
+                    COMM_MARIO_MODEL_IDS_OFFSET + 8 + slot * 8, mid
                 )
             # Pack snapshot in big-endian (comm buffer format)
             be_bytes = snap.pack_comm()
@@ -313,6 +326,39 @@ class Bridge:
                 if entry.get("slot") == slot:
                     return entry.get("name", "").encode("utf-8")[:16].ljust(16, b'\x00')
         return b''
+
+    def _roster_model_id(self, slot: int) -> bytes:
+        """A slot's CharacterPack model id from the roster (8B, zeros=retail)."""
+        if self._client is not None:
+            for entry in self._client.roster:
+                if entry.get("slot") == slot:
+                    mid = entry.get("model_id") or b''
+                    return bytes(mid)[:8].ljust(8, b'\x00')
+        return b'\x00' * 8
+
+    def _sync_remote_model_ids(self):
+        """Mirror roster model ids into RemoteMarioModelIds (@1305, stride 8).
+
+        The server forces a RosterSnapshot on every model change
+        (MarioModelIntent handler), so the roster is authoritative; the game
+        rebuilds a puppet's body when its comm id changes ("reapply requested"
+        path in _BSMSO.kxe). Dirty-diffed per slot: steady state writes nothing.
+        """
+        if self._client is None:
+            return
+        for entry in self._client.roster:
+            slot = entry.get("slot")
+            if slot is None or slot == self._assigned_slot:
+                continue
+            if not (0 <= slot < MAX_PLAYERS):
+                continue
+            mid = bytes(entry.get("model_id") or b'')[:8].ljust(8, b'\x00')
+            if self._last_remote_models.get(slot) == mid:
+                continue
+            self._last_remote_models[slot] = mid
+            self._mem.write_comm_subregion(
+                COMM_MARIO_MODEL_IDS_OFFSET + 8 + slot * 8, mid
+            )
 
     def _emit_roster_event(self, kind: int, slot: int, name: bytes):
         """Write a RosterHud event into the comm buffer.
@@ -353,9 +399,14 @@ class Bridge:
         # Emit the 'Disconnected' roster event — the game's despawn cue.
         name = self._roster_name(slot) or b'\x00' * 16
         self._emit_roster_event(ROSTER_HUD_EVENT_DISCONNECTED, slot, name)
+        # Zero the slot's model id so a later occupant starts retail.
+        self._mem.write_comm_subregion(
+            COMM_MARIO_MODEL_IDS_OFFSET + 8 + slot * 8, b'\x00' * 8
+        )
         # Discard local tracking for this slot.
         self._known_slots.discard(slot)
         self._last_remote.pop(slot, None)
+        self._last_remote_models.pop(slot, None)
         name_str = bytes(name).rstrip(b'\x00').decode('ascii', 'replace')
         print(f"[bridge] roster: slot {slot} disconnected ({name_str}) — puppet despawn cue sent")
 
@@ -442,6 +493,12 @@ class Bridge:
         self._mem.write_comm_subregion(
             COMM_MARIO_MODEL_IDS_OFFSET, bytes(COMM_MARIO_MODEL_IDS_SIZE)
         )
+        # LocalMarioModelId (@1297): our skin. The game loads the pack from
+        # /data/bsmso_models/<id>.arc and rebuilds Mario's body ("Local model
+        # rebuild" path); zeros (retail) if --skin was not given.
+        self._mem.write_comm_subregion(
+            COMM_MARIO_MODEL_IDS_OFFSET, self._model_id
+        )
 
     def run(self):
         """Main bridge loop.  Blocks until KeyboardInterrupt or fatal error."""
@@ -464,6 +521,7 @@ class Bridge:
         self._client = NetClient(
             self._server,
             port=self._port,
+            model_id=self._model_id,
             on_snapshot_batch=self._on_snapshot_batch,
             on_player_left=self._on_player_left,
         )
@@ -500,11 +558,20 @@ class Bridge:
                     else:
                         self._bse_located = False
                         self._locate_bse()
+                        # A relocated buffer may be fresh — re-assert our skin
+                        # and drop the model-id dirty cache so remotes re-sync.
+                        self._mem.write_comm_subregion(
+                            COMM_MARIO_MODEL_IDS_OFFSET, self._model_id
+                        )
+                        self._last_remote_models.clear()
                     continue
 
                 # Re-assert BSE's native FPS + 16:9 at the discovered addresses
                 # (read-compare-write; no-op when already correct).  See notes above.
                 self._poke_bse_settings()
+
+                # Mirror roster skins into the comm block (dirty-diffed).
+                self._sync_remote_model_ids()
 
                 # Read LocalSnapshot (BE) @ comm offset 48
                 snap_bytes = buf[COMM_LOCAL_SNAPSHOT_OFFSET:
@@ -541,7 +608,17 @@ def main():
     p.add_argument("--aspect", type=int, default=BSE_ASPECT_WIDE,
                    help="BSE aspect enum to assert (2=16:10 — exact for the MBP "
                         "16-inch panel, 3=16:9 WIDE, 4=21:9). Default 3.")
+    p.add_argument("--skin", default="mario",
+                   help=f"Character skin: {', '.join(SKIN_NAMES)}, or a raw "
+                        f"8-hex CharacterPack id. Needs the pack baked into "
+                        f"the ISO (skins_install.py). Default mario (retail).")
     args = p.parse_args()
+
+    try:
+        skin_id = resolve_skin(args.skin)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(2)
 
     pid = find_dolphin_pid()
     if pid is None:
@@ -555,8 +632,10 @@ def main():
         print(str(e), file=sys.stderr)
         sys.exit(1)
 
+    if skin_id:
+        print(f"[bridge] Skin: {skin_name(skin_id)} (id {skin_id})")
     bridge = Bridge(mem, args.server, args.name, args.port, fps=args.fps,
-                    aspect=args.aspect)
+                    aspect=args.aspect, skin=skin_id)
     bridge.run()
 
 

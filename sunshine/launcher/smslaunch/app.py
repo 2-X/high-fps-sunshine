@@ -79,6 +79,12 @@ class Launcher(App):
                 with Horizontal(classes="row", id="row_player"):
                     yield Label("Player (online)", classes="lbl")
                     yield Input(id="player_name")
+                with Horizontal(classes="row", id="row_skin"):
+                    yield Label("Skin (online)", classes="lbl")
+                    yield Select(
+                        [(n.replace("-", " ").title(), n) for n in C.SKIN_NAMES],
+                        id="skin", allow_blank=False,
+                    )
                 with Horizontal(classes="row", id="row_ghost"):
                     yield Label("Ghost bot", classes="lbl")
                     yield Checkbox("spawn ghost (online)", id="ghost")
@@ -139,6 +145,8 @@ class Launcher(App):
         self.query_one("#fov", Input).value = "" if p.get("fov") is None else str(p["fov"])
         self.query_one("#aspect", Select).value = p["aspect"]
         self.query_one("#player_name", Input).value = p.get("player_name", "Kris")
+        self.query_one("#skin", Select).value = (
+            p.get("skin") if p.get("skin") in C.SKIN_NAMES else "mario")
         self.query_one("#ghost", Checkbox).value = bool(p["ghost"])
         self.query_one("#hd_textures", Select).value = p.get("hd_textures", "off")
         for key in [k for k, *_ in C.QOL_CATALOG]:
@@ -165,6 +173,7 @@ class Launcher(App):
             "fov": fov,
             "aspect": self.query_one("#aspect", Select).value,
             "player_name": i("player_name") or "Kris",
+            "skin": self.query_one("#skin", Select).value,
             "ghost": self.query_one("#ghost", Checkbox).value,
             "hd_textures": self.query_one("#hd_textures", Select).value,
             "qol": {k: self.query_one(f"#qol_{k}", Checkbox).value
@@ -188,6 +197,10 @@ class Launcher(App):
         # hide them entirely in solo/offline where they do nothing.
         online = self.working["mode"] == "online"
         self.query_one("#row_player").display = online
+        # Skin rides the bridge's comm-block write, so online only for now
+        # (solo would need a standalone poke — untested whether the kxe polls
+        # LocalMarioModelId without a session).
+        self.query_one("#row_skin").display = online
         self.query_one("#row_ghost").display = online
 
     def _sync_form_quiet(self):
