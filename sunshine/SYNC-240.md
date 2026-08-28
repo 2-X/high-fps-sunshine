@@ -407,3 +407,17 @@ Side note: the PC server needs a restart when convenient — my ~8 bridge restar
 stale slots (no PlayerLeft cleanup), and new Mac joins now time out on the handshake
 (TCP connects, join never completes). Earlier in the session the Mac was live in the
 4-player roster (Kris PC / J_Elbows / Aaron / Kris-Mac).
+
+## 2026-08-28 PC — jump-chain v1 collateral (landing stun) fixed as v2; Mac/clients: rerun switch_rate
+
+Kris's first 120 field session on the PC (post substep-pin fix, 31dabd1) found
+v1 jump-chain collateral: a landing stun. The C2 at the shared lha 0x80258D60
+scaled ALL SIX JumpSlipRecords (dispatcher r31=0x803DD1E0, recs +0x38..+0x9C),
+restoring vanilla-length landing/getup recovery that BSE's 120Hz cadence had
+been shortening 4x. v2 = guarded data writes (20-if on 0x804167B8 + three 02
+halfword writes, 16->64) to ONLY the chain records 0x803DD218/22C/240.
+Pickup on any client incl. Mac: `git pull` + rerun switch_rate — it purges the
+v1 title (STALE_TITLES) and installs v2 from fpspatch. Do NOT keep v1 enabled:
+--check now rejects any C2 @0x80258D60. Also FYI: PC GFX.ini had the same
+ShaderCompilationMode=0 you found on the Mac — now 3/async, applied tonight.
+Petey vomit-window verdict from tonight: WORKS (slow again) at Online 120.

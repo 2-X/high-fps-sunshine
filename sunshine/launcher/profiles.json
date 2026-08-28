@@ -24,7 +24,7 @@
       "fps": 120,
       "fov": 90,
       "aspect": "mac",
-      "ghost": true,
+      "ghost": false,
       "hd_textures": "off",
       "player_name": "Kris",
       "qol": {

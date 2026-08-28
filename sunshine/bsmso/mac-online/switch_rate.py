@@ -173,6 +173,12 @@ MANAGED_RE = re.compile(
 # walk accel" candidates = ambiguous = enabled NONE). Same pattern as the
 # launcher's WS2D_TITLE_STALE.
 STALE_TITLES = [
+    # jump-chain v1 (231e53f): C2 at the shared lha scaled ALL six
+    # JumpSlipRecords — landing/getup stun collateral (Kris 2026-08-28).
+    # Superseded by v2 (data writes, chain records only). Prefix-matched:
+    # the "(guarded" suffix distinguishes v1 from the v2 title.
+    "Jump-chain window x4 BSE-120 (guarded",
+    "Jump-chain window x4 BSE-240 (guarded",
     # pre-substep-pin 240 shapes (superseded by the 120 Hz-sim calibration)
     "Bird walk accel x2.83 BSE-240 (guarded; sqrt literal, NEEDS-TEST)",
     "Blue-coin lifetime v6-BSE-240 (keep 1-of-8; self-gated 4.0f; "

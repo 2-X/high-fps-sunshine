@@ -2085,34 +2085,53 @@ def bse_peek_gate(fps=120):
 
 
 # ---- jump-chain window under BSE (John's 2026-08-28 A/B) --------------------
-# TMario::jumpSlipEvents (USA 0x80258D24; found via the jumpSlip dispatcher's
-# four 20-byte JumpSlipRecord statics and confirmed by the PAL size 0x138
-# landing exactly on jumpSlipCommon 0x80258E5C): the double/triple-jump chain
-# window is `mStatusTimer >= rec->mMaxTimer` with mMaxTimer = 16 RAW TICKS,
-# ticked once per Mario status update. Stock cadence 30Hz -> ~533ms to chain;
-# BSE runs the status machine at 120Hz (raw at 120, substep-pinned at 240) ->
-# 133ms, below human reaction from the landing frame. John's A/B: native 30
-# easy / BSE-60 harder / BSE-120 impossible — the exact 1/(rate) curve.
-# Fix: scale the loaded threshold x4 (slwi 2) at the lha site, BSE-guarded.
-# The real cmpw at +4 runs unmodified after the cave. r0 is the load target
-# (dead), r11/r12 unused in the region, r5 (the live timer) untouched by the
-# guard triple. HANDOFF-JUMPCHAIN-BUG.md has the full report.
-JUMPCHAIN_HOOK = 0x80258D60    # lha r0,0(r4) — rec->mMaxTimer load
-JUMPCHAIN_LHA  = 0xA8040000    # that original instruction
-JUMPCHAIN_SLWI = 0x5400103A    # slwi r0,r0,2 (x4 = 120Hz-sim / stock 30Hz)
+# TMario::jumpSlipEvents (USA 0x80258D24; jumpSlipCommon 0x80258E5C): the
+# double/triple-jump chain window is `mStatusTimer >= rec->mMaxTimer` with
+# mMaxTimer = 16 RAW TICKS, ticked once per Mario status update. Stock cadence
+# 30Hz -> ~533ms to chain; BSE runs the status machine at 120Hz (raw at 120,
+# substep-pinned at 240) -> 133ms, below human reaction from the landing
+# frame. John's A/B: native 30 easy / BSE-60 harder / BSE-120 impossible — the
+# exact 1/(rate) curve.
+#
+# v1 (231e53f) scaled the LOADED threshold x4 via a C2 at the shared lha
+# (0x80258D60) — which hit every record served by that load. The jumpSlip
+# dispatcher (prologue 0x80258308: lis 0x803E / addi -0x2E20 -> r31 =
+# 0x803DD1E0) passes SIX 20-byte JumpSlipRecords at r31+0x38..+0x9C, layout
+# {s16 mMaxTimer; u32 timeout status; u32 chain status; u32 move-exit status;
+# u32}:
+#   +0x38 max=16 chain 0x02000881 (-> double)  +0x4C max=16 chain 0x02000881
+#   +0x60 max=16 chain 0x00000882 (-> triple)  +0x74 max=16 chain 0x02000880
+#   +0x88 max=4  chain 0x02000880              +0x9C max=24 chain 0x00000888
+# x4 on ALL of them restored vanilla-length landing/getup recovery states that
+# BSE's fast status cadence had been (pleasantly) shortening 4x — Kris's
+# 2026-08-28 field report at Online 120: "a bit of a stun where I can't move"
+# on landing, new the night v1 first ran.
+#
+# v2 drops the C2 entirely and scales ONLY the three records that feed the
+# double/triple chain (+0x38, +0x4C -> 0x881; +0x60 -> 0x882) as guarded
+# DATA: a Gecko 32-bit if-equal (20) on the framerate global — BSE rewrites
+# it every frame, so the writes self-scope to the target rate exactly like
+# the C2 guards — followed by three 16-bit writes (02) and a full terminator
+# (E0). Records +0x74/+0x88/+0x9C keep stock values: their short real-time
+# recovery under BSE is the desired feel, and John's verified double/triple
+# A/B never depended on them. HANDOFF-JUMPCHAIN-BUG.md has the full report.
+JUMPCHAIN_HOOK = 0x80258D60    # v1's C2 site — kept so --check REJECTS v1
+JUMPSLIP_RECS = 0x803DD1E0     # dispatcher r31; records at +0x38..+0x9C
+JUMPCHAIN_CHAIN_RECS = (0x803DD218, 0x803DD22C, 0x803DD240)  # ->881,881,882
+JUMPCHAIN_STOCK = 16           # stock mMaxTimer in all three chain records
 
 def bse_jump_chain(fps=120):
-    """Scale the jump-chain window threshold x4 under BSE. The factor is the
+    """Scale the three chain-feeding JumpSlipRecord mMaxTimers by the
     status-machine cadence ratio bse_sim_fps(fps)/30 — 4 at BOTH kit rates
-    (raw 120Hz at fps=120; the substep pin holds 120Hz at fps=240)."""
-    assert bse_sim_fps(fps) // 30 == 4, "jump-chain factor is built as slwi 2"
-    w = _bse_guard(8, fps=fps) + [
-        JUMPCHAIN_LHA,       # guard-pass: lha r0,0(r4)
-        JUMPCHAIN_SLWI,      #             slwi r0,r0,2 (window x4)
-        0x48000008,          #             b past the stock load
-        JUMPCHAIN_LHA,       # run-stock convergence (word 8): plain lha
-    ]
-    return _c2(JUMPCHAIN_HOOK, w)
+    (raw 120Hz at fps=120; the substep pin holds 120Hz at fps=240) — as data
+    writes under a Gecko if-equal on the framerate global."""
+    k = bse_sim_fps(fps) // 30
+    want = JUMPCHAIN_STOCK * k
+    lines = [f"20{FRAMERATE_GLOBAL & 0x01FFFFFF:06X} {bse_fps_word(fps):08X}"]
+    for rec in JUMPCHAIN_CHAIN_RECS:
+        lines.append(f"02{rec & 0x01FFFFFF:06X} {want:08X}")
+    lines.append("E0000000 80008000")
+    return "\n".join(lines)
 
 
 def bse_wipe_pace(fps=120):
@@ -2677,7 +2696,7 @@ def bse_build(fps):
         # measured ~58 VPS at a 240 target; Vulkan: Bianco offline ~170 -> ~315
         # with the stock gate). Render-rate class, FPS/30 divisor.
         (f"$EFB peek 30Hz gate {tag} (guarded; NEEDS-TEST)", bse_peek_gate(fps)),
-        (f"$Jump-chain window x4 {tag} (guarded; NEEDS-TEST)",
+        (f"$Jump-chain window x4 {tag} v2 (chain records only; NEEDS-TEST)",
          bse_jump_chain(fps)),
         (f"$Game-clock fix v15 {tag} (self-gated on {g:g}.0f; NEEDS-TEST)",
          bse_timerfix(fps)),
@@ -2740,7 +2759,8 @@ def emit_ini(fps, title, bundle):
 
 
 def _iter_codes(bundle):
-    """Walk a bundle yielding ('C2', addr, body_words) and ('04', addr, value)."""
+    """Walk a bundle yielding ('C2', addr, body_words) plus ('04'|'02'|'20',
+    addr, value) for writes and if-equals. E0 terminators are consumed silently."""
     words = []
     for line in bundle.splitlines():
         line = line.strip()
@@ -2755,6 +2775,11 @@ def _iter_codes(bundle):
             body = [int(x, 16) for x in words[i + 2: i + 2 + 2 * n]]
             yield "C2", 0x80000000 | int(w[2:], 16), body
             i += 2 + 2 * n
+        elif w.startswith("02") or w.startswith("20"):
+            yield w[:2], 0x80000000 | int(w[2:], 16), int(words[i + 1], 16)
+            i += 2
+        elif w.startswith("E0"):
+            i += 2
         else:
             yield "04", 0x80000000 | int(w[2:], 16), int(words[i + 1], 16)
             i += 2
@@ -3001,21 +3026,21 @@ def _check_bse(codes, n_c2, errs, fps=120):
         if not real or real[-1] != PEEK_ORIG:
             errs.append(f"BSE peek gate @{hook:08X}: last real word != mflr r0")
 
-    # g3. Jump-chain window x4 — guard, the slwi-2 scale, and BOTH lha copies
-    #     (guard-pass scaled path + run-stock convergence).
-    jc = codes.get(("C2", JUMPCHAIN_HOOK))
-    if jc is None:
-        errs.append(f"BSE jump-chain block @{JUMPCHAIN_HOOK:08X} missing — "
-                    f"triple jump stays impossible (HANDOFF-JUMPCHAIN-BUG.md)")
-    else:
-        if not _has_bse_guard(jc, fps):
-            errs.append(f"BSE jump-chain @{JUMPCHAIN_HOOK:08X}: guard prologue absent")
-        if JUMPCHAIN_SLWI not in jc:
-            errs.append(f"BSE jump-chain @{JUMPCHAIN_HOOK:08X}: slwi r0,r0,2 (x4 "
-                        f"window scale) absent")
-        if jc.count(JUMPCHAIN_LHA) != 2:
-            errs.append(f"BSE jump-chain @{JUMPCHAIN_HOOK:08X}: expected the lha "
-                        f"twice (scaled path + run-stock convergence)")
+    # g3. Jump-chain window x4 v2 — data form only: the 20-if on the framerate
+    #     global with this rate's word, three 02 halfword writes of 16*4 to the
+    #     chain records, and NO v1 C2 at the shared lha (that form scaled every
+    #     JumpSlipRecord and shipped the landing-stun collateral, 2026-08-28).
+    if ("C2", JUMPCHAIN_HOOK) in codes:
+        errs.append(f"jump-chain v1 C2 @{JUMPCHAIN_HOOK:08X} present — it "
+                    f"scales ALL six JumpSlipRecords (landing/getup stun); "
+                    f"v2 is data writes to the three chain records")
+    if codes.get(("20", FRAMERATE_GLOBAL)) != bse_fps_word(fps):
+        errs.append(f"jump-chain v2: 20-if on {FRAMERATE_GLOBAL:08X} with "
+                    f"{bse_fps_word(fps):08X} (float {fps/60:g}) missing")
+    for rec in JUMPCHAIN_CHAIN_RECS:
+        if codes.get(("02", rec)) != JUMPCHAIN_STOCK * 4:
+            errs.append(f"jump-chain v2: 02 write @{rec:08X} != "
+                        f"{JUMPCHAIN_STOCK * 4:#06x} (chain record mMaxTimer x4)")
 
     # h. Game-clock fix v15 — SELF-GATED (no BSE guard). Assert the block reads
     #    the framerate global 0x804167B8 and compares against 2.0f, then blr's.

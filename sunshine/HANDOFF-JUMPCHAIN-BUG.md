@@ -1,7 +1,31 @@
 # BUG: jump chain (double/triple jump) window scales with the render rate under BSE
 
 **Reported 2026-08-28 by John (120fps online client, fork disc, Radmin VPN join).**
-**Status: DIAGNOSED BY A/B, not yet root-caused in code. No fix.**
+**Status: FIXED — v2 shipped 2026-08-28 (see below). The rest of this file is
+the original diagnosis, kept for the record.**
+
+## RESOLUTION (2026-08-28, two rounds)
+
+**v1 (231e53f):** C2 at the `lha r0,0(r4)` @0x80258D60 in TMario::jumpSlipEvents
+scaling the loaded `rec->mMaxTimer` x4, BSE-guarded. Triple jump confirmed
+working — but that lha serves EVERY JumpSlipRecord, and the same night's field
+test (Kris, Online 120) found the collateral: a landing stun. The jumpSlip
+dispatcher (prologue 0x80258308, r31 = 0x803DD1E0) passes SIX 20-byte records
+at r31+0x38..+0x9C; x4 on all six restored vanilla-length landing/getup
+recovery states that BSE's 120Hz status cadence had been shortening 4x — a
+"snappiness" everyone had internalized as the high-fps feel.
+
+**v2 (shipped):** `bse_jump_chain` in fpspatch now emits guarded DATA instead
+of a hook — Gecko `20`-if on the framerate global (2.0f/4.0f per rate) + three
+`02` halfword writes scaling ONLY the chain-feeding records:
+0x803DD218/0x803DD22C (chain -> 0x02000881 double) and 0x803DD240 (-> 0x00000882
+triple), 16 -> 64 ticks. Records +0x74/+0x88/+0x9C stay stock (short recovery
+under BSE = desired feel; the verified double/triple A/B never used them).
+Title: `$Jump-chain window x4 BSE-<fps> v2 (chain records only; NEEDS-TEST)`.
+The v1 title is in switch_rate's STALE_TITLES (auto-removed on next run);
+`--check` now REJECTS any C2 @0x80258D60. Client pickup: pull + rerun
+switch_rate (it regenerates from fpspatch and purges v1). Field verdict wanted:
+triple jump still easy AND no landing stun.
 
 ## Symptom
 
