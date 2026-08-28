@@ -639,7 +639,9 @@ SUN_PROBE = "0402E28C 60000000"
 # gate's proven shape). Clobbers r0/r11/r12/cr0 at function entry — all dead.
 # This supersedes SUN_PROBE (which NOP'd the sampler call and broke the flare);
 # the flare and Mario's occlusion indicator stay visually correct at 30Hz.
-# NOTE not yet wired into the BSE companion (bse_build) — stock bundle only.
+# BSE port: bse_peek_gate() (2026-08-27, after Bianco-online sat at the ~170
+# pre-gate ceiling while offline had moved to ~315 — the gate was born a week
+# after the BSE companion and never wired in).
 MARIO_PEEK_HOOK = 0x8024D17C   # TMario::drawSyncCallback (map-verified)
 SUN_PEEK_HOOK   = 0x8002E270   # TSunMgr::drawSyncCallback (map-verified)
 PEEK_ORIG       = 0x7C0802A6   # mflr r0 — first insn of BOTH, dol-verified
@@ -2051,6 +2053,35 @@ def bse_se_frame_gate(fps=120):
                       block(SE30_SEND_HOOK, store=True)])
 
 
+def bse_peek_gate(fps=120):
+    """peek_gate with a BSE guard: both EFB-peek draw-sync callbacks (Mario
+    occlusion GXPeekARGB + sun-flare GXPeekZ sampler) gated to native 30Hz.
+    Guard-fail => the original mflr r0 runs and execution falls through into
+    the callback (stock: peek every rendered frame). Entry-hook/blr shape and
+    check contract identical to bse_se_frame_gate; r0/r11/r12/cr0 are dead at
+    both function entries (see the stock peek_gate analysis), so the default
+    guard register triple is safe. Each hook owns its counter, so both store."""
+    n = int(fps // 30)
+    def block(hook, ctr_off):
+        w0 = [0x3D608000,                                # lis   r11,0x8000
+              0x80000000 | (12 << 21) | (11 << 16) | ctr_off,  # lwz r12,ctr(r11)
+              0x398C0001,                                # addi  r12,r12,1
+              0x90000000 | (12 << 21) | (11 << 16) | ctr_off]  # stw r12,ctr(r11)
+        if n & (n - 1) == 0:                             # 4 at 120, 8 at 240
+            w0.append(_andi_(12, 12, n - 1))
+        else:                                            # unreachable under
+            w0 += [_li(11, n), _divwu(0, 12, 11),        # bse_supported (N is
+                   _mullw(0, 0, 11), _subf_(0, 0, 12)]   # a power of two)
+        i_orig = 5 + len(w0) + 2                         # index of PEEK_ORIG
+        w = _bse_guard(i_orig, fps=fps) + w0 + [
+            0x41820008,                                  # beq +8 -> CONT (run)
+            0x4E800020,                                  # blr — gated: skip fn
+            PEEK_ORIG]                                   # CONT: mflr r0 (orig)
+        return _c2(hook, w)
+    return "\n".join([block(MARIO_PEEK_HOOK, MARIO_PEEK_CTR),
+                      block(SUN_PEEK_HOOK, SUN_PEEK_CTR)])
+
+
 def bse_wipe_pace(fps=120):
     """wipe_pace (smooth56=False) with a BSE guard on all three blocks.
     Guard-fail => wipes run STOCK (ungated): the original insn executes and the
@@ -2596,6 +2627,11 @@ def bse_build(fps):
          "NEEDS-TEST ~20s)", bse_bluecoin(fps)),
         (f"$Wipe pace 30Hz gate {tag} (guarded)", bse_wipe_pace(fps)),
         (f"$SE frame-process 30Hz gate {tag} (guarded)", bse_se_frame_gate(fps)),
+        # The 2026-08-27 offline perf unlock, ported: the two synchronous EFB
+        # peeks are the top video-thread stall class on BOTH backends (Metal:
+        # measured ~58 VPS at a 240 target; Vulkan: Bianco offline ~170 -> ~315
+        # with the stock gate). Render-rate class, FPS/30 divisor.
+        (f"$EFB peek 30Hz gate {tag} (guarded; NEEDS-TEST)", bse_peek_gate(fps)),
         (f"$Game-clock fix v15 {tag} (self-gated on {g:g}.0f; NEEDS-TEST)",
          bse_timerfix(fps)),
         (f"$Raw anim-rate x{30 / fps:g} fixes {tag} (self-gated on !=0.5f; "
@@ -2885,6 +2921,21 @@ def _check_bse(codes, n_c2, errs, fps=120):
         if stores != may_store:
             errs.append(f"BSE SE gate @{hook:08X}: counter store "
                         f"{'missing' if may_store else 'present'} (send owns it)")
+
+    # g2. EFB peek gate — guard on both, divisor FPS/30, gated path blr's with
+    #     the original mflr r0 as the run-stock convergence (SE-gate contract).
+    for hook in (MARIO_PEEK_HOOK, SUN_PEEK_HOOK):
+        body = codes.get(("C2", hook))
+        if body is None:
+            errs.append(f"BSE peek gate @{hook:08X} missing — Bianco online sits "
+                        f"at the ~170 pre-gate ceiling without it"); continue
+        if not _has_bse_guard(body, fps):
+            errs.append(f"BSE peek gate @{hook:08X}: guard prologue absent")
+        if _implied_divisor(body, ctr=12) != N:
+            errs.append(f"BSE peek gate @{hook:08X}: divisor != {N}")
+        real = [w for w in body if w not in (0, NOP)]
+        if not real or real[-1] != PEEK_ORIG:
+            errs.append(f"BSE peek gate @{hook:08X}: last real word != mflr r0")
 
     # h. Game-clock fix v15 — SELF-GATED (no BSE guard). Assert the block reads
     #    the framerate global 0x804167B8 and compares against 2.0f, then blr's.
