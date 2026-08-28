@@ -2098,11 +2098,20 @@ def bse_peek_gate(fps=120):
 # ---- jump-chain window under BSE (John's 2026-08-28 A/B) --------------------
 # TMario::jumpSlipEvents (USA 0x80258D24; jumpSlipCommon 0x80258E5C): the
 # double/triple-jump chain window is `mStatusTimer >= rec->mMaxTimer` with
-# mMaxTimer = 16 RAW TICKS, ticked once per Mario status update. Stock cadence
-# 30Hz -> ~533ms to chain; BSE runs the status machine at 120Hz (raw at 120,
-# substep-pinned at 240) -> 133ms, below human reaction from the landing
-# frame. John's A/B: native 30 easy / BSE-60 harder / BSE-120 impossible — the
-# exact 1/(rate) curve.
+# mMaxTimer = 16 RAW TICKS, ticked once per Mario status update. The status
+# machine is RENDER-paced (one tick per rendered frame), NOT substep-paced:
+# min(fps,120)Hz — 60Hz at FPS_60, 120Hz at FPS_120, and pinned 120Hz at
+# FPS_240 (the substep pin holds the status machine at 120). Stock cadence
+# 30Hz -> ~533ms to chain; BSE-120 -> 133ms, below human reaction from the
+# landing frame. John's A/B: native 30 easy / BSE-60 harder / BSE-120
+# impossible — the exact 1/(rate) curve, which is the PROOF it is render-paced:
+# a constant-120 status machine (like blue-coin) would make 60 and 120 equally
+# impossible. So the correct scale is bse_status_fps(fps)/30 = min(fps,120)/30
+# = 2 at FPS_60, 4 at 120/240 (x4 is right by coincidence — min caps at 120).
+# An earlier form derived this from bse_sim_fps (constant 120), which over-
+# scaled to x4 at FPS_60 and stretched the chain window 2x too long — that read
+# as an "extra landing stun where you can't move" at BSE-60. The classes only
+# diverge at 60, so the bug was latent until John's 60fps A/B.
 #
 # v1 (231e53f) scaled the LOADED threshold x4 via a C2 at the shared lha
 # (0x80258D60) — which hit every record served by that load. The jumpSlip
@@ -2131,16 +2140,45 @@ JUMPSLIP_RECS = 0x803DD1E0     # dispatcher r31; records at +0x38..+0x9C
 JUMPCHAIN_CHAIN_RECS = (0x803DD218, 0x803DD22C, 0x803DD240)  # ->881,881,882
 JUMPCHAIN_STOCK = 16           # stock mMaxTimer in all three chain records
 
+# The three landing/getup records (+0x74/+0x88/+0x9C) v2 left stock. Their
+# mMaxTimer is the same s16 at the record base (upper halfword of the 32-bit
+# word — a value of 8 reads back as 0x00080000 at 0x803DD254, confirmed in live
+# RAM), ticked by the SAME render/status-paced machine as the chain records. At
+# FPS_60 the status machine runs at 60 Hz, so these recover ~2x slower in wall
+# clock than at 120 (267ms vs the pleasant 133ms) -> a landing "stun." Scale
+# them by min(fps,120)/120 (0.5 at 60, 1.0 at 120/240) to restore the 120 feel.
+# factor==1 at 120/240 => stock value => EMIT NOTHING (byte-identity constraint;
+# only FPS_60 changes). Kris live-poked 8/2/12 at 60 and confirmed it's better.
+JUMPCHAIN_LANDING_RECS = (
+    (0x803DD254, 16),   # +0x74 max=16
+    (0x803DD268, 4),    # +0x88 max=4
+    (0x803DD27C, 24),   # +0x9C max=24
+)
+
 def bse_jump_chain(fps=120):
     """Scale the three chain-feeding JumpSlipRecord mMaxTimers by the
-    status-machine cadence ratio bse_sim_fps(fps)/30 — 4 at BOTH kit rates
-    (raw 120Hz at fps=120; the substep pin holds 120Hz at fps=240) — as data
-    writes under a Gecko if-equal on the framerate global."""
-    k = bse_sim_fps(fps) // 30
+    RENDER/STATUS-machine cadence ratio bse_status_fps(fps)/30 = min(fps,120)/30
+    — 2 at FPS_60, 4 at 120/240. The status machine is RENDER-paced (ticks once
+    per rendered frame), NOT substep-paced, so this is bse_status_fps, NOT
+    bse_sim_fps (which is a constant 120 for the truly substep-paced siblings:
+    blue-coin, shimmer). x4 at 120/240 is right because min() caps at 120; x2
+    at 60 is the fix — the constant-120 bse_sim_fps over-scaled to x4 at 60,
+    stretching the chain/landing window 2x too long (the BSE-60 landing stun).
+    Emitted as data writes under a Gecko if-equal on the framerate global."""
+    k = bse_status_fps(fps) // 30
     want = JUMPCHAIN_STOCK * k
     lines = [f"20{FRAMERATE_GLOBAL & 0x01FFFFFF:06X} {bse_fps_word(fps):08X}"]
     for rec in JUMPCHAIN_CHAIN_RECS:
         lines.append(f"02{rec & 0x01FFFFFF:06X} {want:08X}")
+    # Landing/getup records, scaled by min(fps,120)/120 (0.5 at 60, 1.0 at
+    # 120/240). Only < 1 (i.e. fps < 120) changes the value; at 120/240 the
+    # scaled value equals stock, so we emit NOTHING to keep those bundles
+    # byte-identical. Same s16 halfword field / same guarded 02-write form as
+    # the chain records above, under the SAME 20-if guard and terminator.
+    factor = min(int(fps), 120) / 120
+    if factor < 1:
+        for rec, stock in JUMPCHAIN_LANDING_RECS:
+            lines.append(f"02{rec & 0x01FFFFFF:06X} {int(stock * factor):08X}")
     lines.append("E0000000 80008000")
     return "\n".join(lines)
 
@@ -2659,6 +2697,23 @@ def bse_sim_fps(fps):
     return 120
 
 
+def bse_status_fps(fps):
+    """The RENDER/STATUS rate under the BSE companion: min(fps, 120) Hz — it
+    tracks the render rate up to 120 and is then pinned (the substep pin holds
+    the status machine at 120 Hz at 240). This is DIFFERENT from bse_sim_fps():
+    the Mario status machine (TMario::jumpSlipEvents et al.) is RENDER-paced —
+    it ticks once per Mario status update, once per rendered frame — NOT
+    substep-paced like blue-coin / shimmer / the sim integrator. The two
+    cadence classes only DIVERGE at FPS_60: status = 60 Hz (render), sim =
+    120 Hz (two substeps/frame). John's 2026-08-28 A/B (native 30 easy /
+    BSE-60 harder / BSE-120 impossible — the exact 1/rate curve) is the
+    evidence: if the status machine were a constant 120 Hz like blue-coin,
+    BSE-60 and BSE-120 would be EQUALLY impossible; that 60 is merely harder
+    proves the status tick scales with the framerate below 120. So render/
+    status-paced divisors are min(fps,120)/30 = 2 at FPS_60 and 4 at 120/240."""
+    return min(int(fps), 120)
+
+
 def bse_substep(fps):
     """The >120 game-speed fix: pin the SIM at 120 Hz. Three stock-kit pieces,
     all in-game proven on the stock 240 desktop kit, reused VERBATIM:
@@ -3163,10 +3218,28 @@ def _check_bse(codes, n_c2, errs, fps=120):
     if codes.get(("20", FRAMERATE_GLOBAL)) != bse_fps_word(fps):
         errs.append(f"jump-chain v2: 20-if on {FRAMERATE_GLOBAL:08X} with "
                     f"{bse_fps_word(fps):08X} (float {fps/60:g}) missing")
+    jc_k = bse_status_fps(fps) // 30          # render/status-paced: 2 @60, 4 @120/240
     for rec in JUMPCHAIN_CHAIN_RECS:
-        if codes.get(("02", rec)) != JUMPCHAIN_STOCK * 4:
+        if codes.get(("02", rec)) != JUMPCHAIN_STOCK * jc_k:
             errs.append(f"jump-chain v2: 02 write @{rec:08X} != "
-                        f"{JUMPCHAIN_STOCK * 4:#06x} (chain record mMaxTimer x4)")
+                        f"{JUMPCHAIN_STOCK * jc_k:#06x} (chain record mMaxTimer "
+                        f"x{jc_k}, render-paced min(fps,120)/30)")
+    # Landing/getup records: scaled by min(fps,120)/120 -> present ONLY at
+    # fps<120 (0.5 => 8/2/12 at 60). At 120/240 factor==1 so they equal stock
+    # and MUST be absent (byte-identity with the pre-landing-fix 120/240 bundle).
+    jc_factor = min(int(fps), 120) / 120
+    for rec, stock in JUMPCHAIN_LANDING_RECS:
+        got = codes.get(("02", rec))
+        if jc_factor < 1:
+            if got != int(stock * jc_factor):
+                errs.append(f"jump-chain v2 landing: 02 write @{rec:08X} = "
+                            f"{got if got is None else hex(got)} != "
+                            f"{int(stock * jc_factor):#06x} (landing/getup "
+                            f"mMaxTimer x{jc_factor:g}, render-paced min(fps,120)/120)")
+        elif got is not None:
+            errs.append(f"jump-chain v2 landing: 02 write @{rec:08X} present at "
+                        f"{fps}fps — factor==1 so it equals stock; must be "
+                        f"omitted to keep the 120/240 bundle byte-identical")
 
     # h. Game-clock fix v15 — SELF-GATED (no BSE guard). Assert the block reads
     #    the framerate global 0x804167B8 and compares against 2.0f, then blr's.
