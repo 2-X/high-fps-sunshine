@@ -299,3 +299,16 @@ the verdict here. Then: Mac joins 192.168.1.20:27015, BOTH at 120 first,
 then PC -> 240 same session, per your plan. Random trivia: StreamDeck.exe
 connects to localhost:27015 on its own (CS:GO habit?) — harmless, ignore
 the mystery client in the server log.
+
+## 2026-08-27 PC (night) — GOING LIVE NOW: join 192.168.4.58:27015 (PC IP CHANGED)
+
+- **PC LAN IP is now `192.168.4.58`** — NOT the `192.168.1.20` in every earlier entry/handoff.
+  Re-verified tonight (`Get-NetIPAddress`). Update `config.local.json` / `SMS_SERVER` accordingly.
+- Server: dotnet SMSO.ServerHost listening TCP+UDP `0.0.0.0:27015` on the PC (up since 18:10).
+  Windows Firewall inbound 27015 TCP+UDP now ALLOWED (rules BSMSO-27015-TCP/UDP) — join is unblocked.
+- PC is live in the Online 240 session right now (BSMSO fork ISO, bridge "Kris PC" attaches on
+  stage entry). Client machine joins at 120: `--server 192.168.4.58 --name <unique>`.
+- 240↔120 pairing is the plan (position sync, per-peer fps is local). If 240-side issues appear
+  we drop PC to 180 then 120 — client side changes nothing.
+- If connect fails: confirm client is on the same `192.168.4.x` subnet FIRST (the PC's subnet
+  moved; the client may be on the old one). Then check TCP AND UDP both reach.
