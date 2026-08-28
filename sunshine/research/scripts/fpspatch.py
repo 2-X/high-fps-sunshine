@@ -2082,6 +2082,37 @@ def bse_peek_gate(fps=120):
                       block(SUN_PEEK_HOOK, SUN_PEEK_CTR)])
 
 
+# ---- jump-chain window under BSE (John's 2026-08-28 A/B) --------------------
+# TMario::jumpSlipEvents (USA 0x80258D24; found via the jumpSlip dispatcher's
+# four 20-byte JumpSlipRecord statics and confirmed by the PAL size 0x138
+# landing exactly on jumpSlipCommon 0x80258E5C): the double/triple-jump chain
+# window is `mStatusTimer >= rec->mMaxTimer` with mMaxTimer = 16 RAW TICKS,
+# ticked once per Mario status update. Stock cadence 30Hz -> ~533ms to chain;
+# BSE runs the status machine at 120Hz (raw at 120, substep-pinned at 240) ->
+# 133ms, below human reaction from the landing frame. John's A/B: native 30
+# easy / BSE-60 harder / BSE-120 impossible — the exact 1/(rate) curve.
+# Fix: scale the loaded threshold x4 (slwi 2) at the lha site, BSE-guarded.
+# The real cmpw at +4 runs unmodified after the cave. r0 is the load target
+# (dead), r11/r12 unused in the region, r5 (the live timer) untouched by the
+# guard triple. HANDOFF-JUMPCHAIN-BUG.md has the full report.
+JUMPCHAIN_HOOK = 0x80258D60    # lha r0,0(r4) — rec->mMaxTimer load
+JUMPCHAIN_LHA  = 0xA8040000    # that original instruction
+JUMPCHAIN_SLWI = 0x5400103A    # slwi r0,r0,2 (x4 = 120Hz-sim / stock 30Hz)
+
+def bse_jump_chain(fps=120):
+    """Scale the jump-chain window threshold x4 under BSE. The factor is the
+    status-machine cadence ratio bse_sim_fps(fps)/30 — 4 at BOTH kit rates
+    (raw 120Hz at fps=120; the substep pin holds 120Hz at fps=240)."""
+    assert bse_sim_fps(fps) // 30 == 4, "jump-chain factor is built as slwi 2"
+    w = _bse_guard(8, fps=fps) + [
+        JUMPCHAIN_LHA,       # guard-pass: lha r0,0(r4)
+        JUMPCHAIN_SLWI,      #             slwi r0,r0,2 (window x4)
+        0x48000008,          #             b past the stock load
+        JUMPCHAIN_LHA,       # run-stock convergence (word 8): plain lha
+    ]
+    return _c2(JUMPCHAIN_HOOK, w)
+
+
 def bse_wipe_pace(fps=120):
     """wipe_pace (smooth56=False) with a BSE guard on all three blocks.
     Guard-fail => wipes run STOCK (ungated): the original insn executes and the
@@ -2632,6 +2663,8 @@ def bse_build(fps):
         # measured ~58 VPS at a 240 target; Vulkan: Bianco offline ~170 -> ~315
         # with the stock gate). Render-rate class, FPS/30 divisor.
         (f"$EFB peek 30Hz gate {tag} (guarded; NEEDS-TEST)", bse_peek_gate(fps)),
+        (f"$Jump-chain window x4 {tag} (guarded; NEEDS-TEST)",
+         bse_jump_chain(fps)),
         (f"$Game-clock fix v15 {tag} (self-gated on {g:g}.0f; NEEDS-TEST)",
          bse_timerfix(fps)),
         (f"$Raw anim-rate x{30 / fps:g} fixes {tag} (self-gated on !=0.5f; "
@@ -2936,6 +2969,22 @@ def _check_bse(codes, n_c2, errs, fps=120):
         real = [w for w in body if w not in (0, NOP)]
         if not real or real[-1] != PEEK_ORIG:
             errs.append(f"BSE peek gate @{hook:08X}: last real word != mflr r0")
+
+    # g3. Jump-chain window x4 — guard, the slwi-2 scale, and BOTH lha copies
+    #     (guard-pass scaled path + run-stock convergence).
+    jc = codes.get(("C2", JUMPCHAIN_HOOK))
+    if jc is None:
+        errs.append(f"BSE jump-chain block @{JUMPCHAIN_HOOK:08X} missing — "
+                    f"triple jump stays impossible (HANDOFF-JUMPCHAIN-BUG.md)")
+    else:
+        if not _has_bse_guard(jc, fps):
+            errs.append(f"BSE jump-chain @{JUMPCHAIN_HOOK:08X}: guard prologue absent")
+        if JUMPCHAIN_SLWI not in jc:
+            errs.append(f"BSE jump-chain @{JUMPCHAIN_HOOK:08X}: slwi r0,r0,2 (x4 "
+                        f"window scale) absent")
+        if jc.count(JUMPCHAIN_LHA) != 2:
+            errs.append(f"BSE jump-chain @{JUMPCHAIN_HOOK:08X}: expected the lha "
+                        f"twice (scaled path + run-stock convergence)")
 
     # h. Game-clock fix v15 — SELF-GATED (no BSE guard). Assert the block reads
     #    the framerate global 0x804167B8 and compares against 2.0f, then blr's.

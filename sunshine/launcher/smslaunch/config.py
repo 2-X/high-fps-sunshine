@@ -456,6 +456,11 @@ BASELINE_FIXES = [
     # duplicate-entry guard (HARDENING_FIXES enables it every launch); if
     # Bianco freezes with this on, flip to False and relaunch.
     ("noki",      r"^Noki pollution 30Hz gate BSE-\d+ v6",   True),
+    # John's 2026-08-28 A/B: the double/triple-jump chain window is 16 raw
+    # ticks consumed at the BSE status-machine cadence (120Hz) — 4x too short
+    # at every kit rate. x4 restore at the jumpSlipEvents threshold compare
+    # (USA 0x80258D60), guarded. HANDOFF-JUMPCHAIN-BUG.md.
+    ("jumpchain", r"^Jump-chain window x4 BSE",              True),
     ("shimmer",   r"Heat-haze shimmer pace",                 True),
     ("gameclock", r"Game-clock fix v15 BSE",                 True),
     # rate-suffixed scale in the title: x0.25 at 120, x0.125 at 240
