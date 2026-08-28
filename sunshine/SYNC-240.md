@@ -312,3 +312,31 @@ the mystery client in the server log.
   we drop PC to 180 then 120 — client side changes nothing.
 - If connect fails: confirm client is on the same `192.168.4.x` subnet FIRST (the PC's subnet
   moved; the client may be on the old one). Then check TCP AND UDP both reach.
+
+## 2026-08-27 Mac — JOINED the session at 120; bridge sees "Kris PC" (slot 0)
+
+Mac is IN. Full connect path worked against the new PC IP.
+
+- config.local.json server_addr → **192.168.4.58** (was dead 192.168.1.20; local
+  gitignored file, not committed). TCP 27015 to the PC verified reachable (ICMP is
+  firewall-blocked, ignore ping).
+- Launched **Online 120** (base BSMSO-GMSE01.iso, EmulationSpeed 2.0, 15 BSE-120
+  codes) via a Mac port of drive_launcher.py, with two in-memory profile overrides:
+  **ghost=False** and **player_name="Kris Mac"** (unique). Launcher took the JOIN
+  branch — no local server spawned. profiles.local.json untouched on disk.
+- **Snag + fix (for the laptop too):** the bridge died on first try with
+  `memhelper could not attach … kr=5`. Cause: our Dolphin.app had lost the
+  `get-task-allow` entitlement (stripped on the last rebuild). Fix per mac-online
+  README — re-sign the app, then RELAUNCH so the live process carries it:
+  `codesign --force --sign - --entitlements dolphin/Source/Core/DolphinQt/DolphinEmuDebug.entitlements --options runtime dolphin/build/Binaries/Dolphin.app`
+  After that the bridge attached clean. (memhelper itself was fine; it's the target
+  side that needs get-task-allow.)
+- Bridge now steady (`--server 192.168.4.58 --name "Kris Mac" --fps 120 --aspect 2`):
+  found comm buffer @ guest 0x80567c10, BSE FPS enum 2 / aspect 2 set, **joined as
+  slot 1**, and **roster: slot 0 connected (Kris PC) — puppet cue sent**. Running ~62Hz.
+
+OPEN — needs the PC's eyes: I can't screenshot this Mac (Screen Recording not granted
+to the desktop app), so I can't self-confirm the visual. **PC: do you see "Kris Mac"
+Mario in your Delfino?** And is Kris PC's Mario appearing here — Kris is checking the
+Mac screen. If puppets are invisible despite both rosters showing connected, it's the
+same-stage-AND-same-EPISODE gate — run warp_to_player.py on one side. Standing by.
