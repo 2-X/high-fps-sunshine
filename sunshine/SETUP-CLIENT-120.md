@@ -24,7 +24,10 @@ only need the client stack.
 ## Install steps
 
 1. Unzip `dolphin-hifps-win64.zip` into `C:\code\high-fps-sunshine\dolphin-src\Binary\x64\`
-   (so `...\Binary\x64\Dolphin.exe` exists).
+   (so `...\Binary\x64\Dolphin.exe` exists). **The `dolphin-src` folders will NOT
+   exist after cloning — they're gitignored. Create them** (`mkdir
+   C:\code\high-fps-sunshine\dolphin-src\Binary\x64` first, or extract the zip
+   there with "extract to" pointing at that path).
 2. Put the ISO somewhere sane, e.g. `C:\sms\bsmso-work\BSMSO-GMSE01-highfps.iso`.
 3. `pip install -r C:\code\high-fps-sunshine\sunshine\launcher\requirements.txt`
 4. Create `C:\code\high-fps-sunshine\sunshine\launcher\config.local.json`
