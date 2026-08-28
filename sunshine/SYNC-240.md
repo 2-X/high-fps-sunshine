@@ -374,3 +374,36 @@ next real lever for Mac Bianco is porting non-blocking readbacks to the Metal ba
 
 Also pushed earlier this session: loose-SyncGPU guard added to `Dolphin.ini.pc` +
 SETUP-CLIENT-120 (the laptop's `GFX FIFO: Unknown Opcode` desync fix). d74ea20.
+
+## 2026-08-28 Mac — non-blocking readbacks PORTED to Metal (works), but Bianco is draw-encode-bound not readback-bound
+
+Ported `HiFpsNonBlockingReadbacks` to the Metal backend and rebuilt the Mac Dolphin
+(source changes only, incremental ninja). What it took: the VideoCommon hunks apply as-is
+(FramebufferManager peek path + `AbstractStagingTexture::TryFlush()` default), and the
+load-bearing NET-NEW piece is a Metal `StagingTexture::TryFlush()` override in
+`VideoBackends/Metal/MTLTexture.mm` — polls `[m_wait_buffer status]==Completed`, never
+`waitUntilCompleted`. Skipped the VKPerfQuery hunk (Metal's perf query is already async
+via the worker-thread ReturnResults model). Feature confirmed live: boot log prints
+`[hifps] Non-blocking readbacks ACTIVE`, and in-Bianco `waitUntilCompleted` samples went
+to ~2 (the blocking wait is gone). **NOT yet committed** — Mac-local source; the Metal
+`TryFlush()` should go into the distribution patch if we want it in the shared build.
+
+VERDICT: it gave ~no Bianco win on Mac, and the profile says why — **Bianco on Metal is
+CPU-bound on draw-command ENCODING, not readback**. Live 10s sample in Bianco:
+RenderDrawCall 1410 + DrawIndexed 1384/1378 + BeginRenderPass 1304 + PrepareRender 1262
+(~5000 draw-chain) + AGXMetalG14X driver-encode 684, versus ReadTexels 678 and
+waitUntilCompleted 2. So the video thread is busy encoding draws/render-passes, not
+waiting on GPU or readbacks. The PC's 84%→40% readback win was Vulkan-specific (readback
+WAS its serial stall); on Mac/Metal the draw-submission volume dominates and always did.
+
+BOTTOM LINE for Mac Bianco @120: we've now cleared every non-engine lever — shader-async
+(stutter 1584→4), Noki v6 (40→100+), peek gate, and now non-blocking readbacks. Ceiling
+is ~80-110 (scene-dependent) and it's the Metal draw-call/render-pass encoding wall. Only
+remaining paths: (1) per-level target (Bianco @60 locked — recommend), or (2) class-B
+draw/pass reduction (LOD/cull, fewer EFB-copy pass breaks). Non-blocking readbacks stays
+useful for any Mac stage that IS readback-bound (Pinna's EFB screen-copies, maybe).
+
+Side note: the PC server needs a restart when convenient — my ~8 bridge restarts left
+stale slots (no PlayerLeft cleanup), and new Mac joins now time out on the handshake
+(TCP connects, join never completes). Earlier in the session the Mac was live in the
+4-player roster (Kris PC / J_Elbows / Aaron / Kris-Mac).
