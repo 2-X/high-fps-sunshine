@@ -517,22 +517,38 @@ class Bridge:
         # only — never per loop).  Safe if it fails: pokes just disable.
         self._locate_bse()
 
-        # Connect to server and join
-        self._client = NetClient(
-            self._server,
-            port=self._port,
-            model_id=self._model_id,
-            on_snapshot_batch=self._on_snapshot_batch,
-            on_player_left=self._on_player_left,
-        )
-        try:
-            slot = self._client.join(self._name)
-            self._assigned_slot = slot
-            print(f"[bridge] Joined as slot {slot} (name={self._name})")
-        except JoinError as e:
-            print(f"[bridge] Join failed: {e}", file=sys.stderr)
-            self._client.close()
-            return
+        # Connect to server and join. Retry indefinitely: the host machine may
+        # still be coming up (2026-08-28: a half-started remote server accepted
+        # TCP but never answered the join — the bare TimeoutError killed the
+        # bridge mid-session-setup). A JoinRejected is terminal (name clash /
+        # version mismatch: retrying can't fix it); everything transport-shaped
+        # (refused, unreachable, handshake/join timeout) just waits and retries.
+        while True:
+            self._client = NetClient(
+                self._server,
+                port=self._port,
+                model_id=self._model_id,
+                on_snapshot_batch=self._on_snapshot_batch,
+                on_player_left=self._on_player_left,
+            )
+            try:
+                slot = self._client.join(self._name)
+                self._assigned_slot = slot
+                print(f"[bridge] Joined as slot {slot} (name={self._name})")
+                break
+            except JoinError as e:
+                print(f"[bridge] Join REJECTED by server: {e} — giving up.",
+                      file=sys.stderr)
+                self._client.close()
+                return
+            except (OSError, TimeoutError) as e:
+                print(f"[bridge] Server not ready ({e.__class__.__name__}: {e}) "
+                      f"— retrying in 5s…", file=sys.stderr)
+                try:
+                    self._client.close()
+                except Exception:
+                    pass
+                time.sleep(5.0)
 
         # Signal connected to the game module
         self._set_bridge_connected()
