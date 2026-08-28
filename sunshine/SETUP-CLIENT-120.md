@@ -164,6 +164,7 @@ screens. Solo check while nobody else is on:
 | INI edits have NO effect at all (not even wrong ones) | Legacy `Documents\Dolphin Emulator` dir is shadowing `%APPDATA%` — see the user-directory trap in step 7. |
 | Double/triple jump nearly impossible at 120 | Known engine bug, not your setup: the jump-chain window shrinks with the BSE rate (`sunshine/HANDOFF-JUMPCHAIN-BUG.md`). Fix in progress — pull the repo for updates. |
 | fps struggles at 120 | Make sure the step-9 VERIFY showed the two perf gates (peek + Noki v6) enabled — they are the difference between ~always-120 and Bianco slideshows. Pull the repo if missing (`git pull`), relaunch. |
+| Bursty hitching (fast/hitch/fast) especially first time in a level | Shader-compilation stutter with a cold cache. The kit's `GFX.ini.pc` now ships `ShaderCompilationMode = 3` + `ShaderCache = True` — confirm your `%APPDATA%\Dolphin Emulator\Config\GFX.ini` `[Settings]` has them (Dolphin closed; mode `0` = the stutter-prone default). Smooths out further as the on-disk cache fills over the first playthrough. |
 
 ## Handoff prompt for the AI on the client PC — paste this into a fresh Claude Code chat
 

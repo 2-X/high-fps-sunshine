@@ -27,7 +27,14 @@ InternalResolution = 4
 SafeTextureCacheColorSamples = 512
 SaveTextureCacheToState = True
 EnableGPUTextureDecoding = True
-ShaderCompilationMode = 0
+# Async shader compilation (3 = Skip Drawing) + persistent cache. Mode 0
+# (Synchronous, the Dolphin default) blocks the render thread to compile each
+# new shader variant → hard frame hitches on any fresh/cold-cache client
+# (Mac profile 2026-08-28: Bianco stutter, AsyncShaderCompiler 1584 samples,
+# fixed by mode 3 → 4). Portable win, applies to every client.
+ShaderCompilationMode = 3
+WaitForShadersBeforeStarting = False
+ShaderCache = True
 LogRenderTimeToFile = True
 wideScreenHack = True
 AspectRatio = 0
