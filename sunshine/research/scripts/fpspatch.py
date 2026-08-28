@@ -2198,6 +2198,47 @@ def bse_starfix(fps=120):
     return "\n".join(out)
 
 
+# ---- Boid flocking 30Hz gate under BSE — GUARDED ---------------------------
+# The offline boid_gate ported behind the standard _bse_guard so it only fires
+# when BSE's framerate global holds float(G) (2.0f @120), never at native 0.5f.
+#
+# CADENCE: the offline gate's cadence is DELIBERATELY the CONSTANT parity-2 on
+# gpMarDirector's substep counter (+0x5C) = native 60 Hz — NOT an FPS/30
+# divisor (boid_gate v1's FPS/30 played the school ~2x slow, user-sighted
+# 2026-08-18). Under BSE the substep pin holds that counter at 120 Hz at every
+# rate, so 1-in-2 = 60 Hz exactly, same as the JPA particle parity. So the mask
+# stays the CONSTANT andi. r0,r11,1 at every G — it does NOT scale with fps.
+#
+# STRUCTURE: reuse boid_gate's 9-word body verbatim behind the 5-word guard.
+# All three of the body's internal branches are position-relative (beq +0x18,
+# beq +0xC, b +8), so prepending the guard shifts every word by +5 without
+# disturbing them (the StarFix pattern). Guard-fail is aimed at the re-executed
+# original BOID_ORIG, now at word 5 + 8 = 13. The guard clobbers r12/r0/r11 in
+# its prologue, but the body reloads r12 (from r13) and r11 (from r12) before
+# use and redefines r0 on every path, so there is no register conflict.
+#
+# HOOK CAVEAT: keeps the vanilla hook 0x80005D1C (TBoidLeader::perform + 8).
+# BSE's kxe is a separate module and does NOT relocate vanilla .text, but if a
+# future BSE build ever moves this vanilla function the hook needs in-game
+# re-verification (the C2 would land on unrelated code otherwise).
+def bse_boid(fps=120):
+    """boid_gate wrapped in the BSE guard: fish schools + the towed Gelato red
+    coin (and butterfly clouds) held at native 60 Hz, CONSTANT parity 2 on the
+    director substep counter, only while BSE runs at float(G)."""
+    body = [BOID_LWZ_DIRECTOR,      # lwz    r12,-0x6048(r13)
+            0x280C0000,             # cmplwi r12,0
+            0x41820018,             # beq +0x18: no director -> stock test
+            BOID_LWZ_SUBSTEP,       # lwz    r11,0x5C(r12)
+            0x71600001,             # andi.  r0,r11,1   parity 2 = 60 Hz (CONSTANT)
+            0x4182000C,             # beq +0xC: even tick -> run the update
+            0x70800000,             # gated: andi. r0,r4,0 -> cr0=EQ, perform's
+                                    #  own beq exits via its epilogue
+            0x48000008,             # b -> branch-back slot
+            BOID_ORIG]              # pass/guard-fail: rlwinm. r0,r4,0,30,30
+    w = _bse_guard(5 + 8, fps=fps) + body   # fail -> re-executed original (word 13)
+    return _c2(BOID_HOOK, w)
+
+
 # ---- Game-clock fix v15 under BSE — SELF-GATED, emitted VERBATIM ------------
 # timerfix(120) already compares 0x804167B8 against float(2.0) and blr's (no-op)
 # on mismatch. BSE writes exactly 2.0f every frame at FPS_120, so the self-gate
@@ -2696,6 +2737,10 @@ def bse_build(fps):
         # measured ~58 VPS at a 240 target; Vulkan: Bianco offline ~170 -> ~315
         # with the stock gate). Render-rate class, FPS/30 divisor.
         (f"$EFB peek 30Hz gate {tag} (guarded; NEEDS-TEST)", bse_peek_gate(fps)),
+        # CALC_ANIM-class parity gate (like the JPA particle parity): CONSTANT
+        # 1-in-2 on the director substep counter, NOT an fps-scaled divisor.
+        # Fixes the Gelato reef red-coin fish school outrunning Mario at 120.
+        (f"$Boid flocking 30Hz gate {tag} (guarded; NEEDS-TEST)", bse_boid(fps)),
         (f"$Jump-chain window x4 {tag} v2 (chain records only; NEEDS-TEST)",
          bse_jump_chain(fps)),
         (f"$Game-clock fix v15 {tag} (self-gated on {g:g}.0f; NEEDS-TEST)",
@@ -3025,6 +3070,34 @@ def _check_bse(codes, n_c2, errs, fps=120):
         real = [w for w in body if w not in (0, NOP)]
         if not real or real[-1] != PEEK_ORIG:
             errs.append(f"BSE peek gate @{hook:08X}: last real word != mflr r0")
+
+    # g2b. Boid flocking gate — GUARDED. Same CALC_ANIM-parity contract as the
+    #      offline gate: reads the director substep counter, forces the cue test
+    #      to EQ on gated ticks (andi. r0,r4,0), re-executes the original rlwinm.
+    #      as the last real word (guard-fail convergence), and the parity is the
+    #      CONSTANT 1-in-2 (andi. r0,r11,1) — NEVER an fps-scaled divisor.
+    body = codes.get(("C2", BOID_HOOK))
+    if body is None:
+        errs.append(f"BSE boid gate @{BOID_HOOK:08X} missing — the Gelato reef "
+                    f"red-coin fish school outruns Mario at BSE {fps}fps")
+    else:
+        if not _has_bse_guard(body, fps):
+            errs.append(f"BSE boid gate @{BOID_HOOK:08X}: guard prologue absent")
+        if BOID_LWZ_DIRECTOR not in body or BOID_LWZ_SUBSTEP not in body:
+            errs.append(f"BSE boid gate @{BOID_HOOK:08X}: does not read the "
+                        f"director substep counter (gpMarDirector+0x5C)")
+        if 0x71600001 not in body:
+            errs.append(f"BSE boid gate @{BOID_HOOK:08X}: parity mask andi. "
+                        f"r0,r11,1 absent — cadence must be the CONSTANT 1-in-2 "
+                        f"(native 60 Hz), not a G-derived divisor")
+        if 0x70800000 not in body:
+            errs.append(f"BSE boid gate @{BOID_HOOK:08X}: no force-fail andi. "
+                        f"r0,r4,0 — gated ticks would still run the flocking update")
+        real = [w for w in body if w not in (0, NOP)]
+        if not real or real[-1] != BOID_ORIG:
+            errs.append(f"BSE boid gate @{BOID_HOOK:08X}: last real word "
+                        f"{real[-1] if real else 0:08X} != the re-executed "
+                        f"original {BOID_ORIG:08X} (rlwinm. r0,r4,0,30,30)")
 
     # g3. Jump-chain window x4 v2 — data form only: the 20-if on the framerate
     #     global with this rate's word, three 02 halfword writes of 16*4 to the

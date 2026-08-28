@@ -453,6 +453,9 @@ BASELINE_FIXES = [
     # the offline in-game verdict + guard safety; first BSE in-game pass
     # 2026-08-27 night (Bianco online sat at the ~170 pre-gate ceiling).
     ("peekgate",  r"EFB peek 30Hz gate BSE",                 True),
+    # Boid flocking gate ported to BSE 2026-08-28 — Gelato reef red-coin fish
+    # outran Mario at 120 (progression blocker). Constant parity-2, guarded.
+    ("boid",      r"^Boid flocking 30Hz gate BSE",           True),
     # v6 ONLY (^-anchored, " v6" required: the quarantined v5 "FREEZES" title
     # must never match). Enabled 2026-08-27 night for the first BSE in-game
     # test: with the peek gate live, Bianco online still sat at the pre-gate
@@ -465,7 +468,7 @@ BASELINE_FIXES = [
     # ticks consumed at the BSE status-machine cadence (120Hz) — 4x too short
     # at every kit rate. x4 restore at the jumpSlipEvents threshold compare
     # (USA 0x80258D60), guarded. HANDOFF-JUMPCHAIN-BUG.md.
-    ("jumpchain", r"^Jump-chain window x4 BSE",              True),
+    ("jumpchain", r"^Jump-chain window x4 BSE",              False),
     # Petey's anim-rate site split out of the quarantined blanket family: the
     # v16-era block at 0x800955CC was in-game-confirmed, and Petey runs fast
     # under bare BSE (not natively compensated). The "Raw anim-rate" family
