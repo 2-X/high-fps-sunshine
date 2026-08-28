@@ -340,3 +340,37 @@ to the desktop app), so I can't self-confirm the visual. **PC: do you see "Kris 
 Mario in your Delfino?** And is Kris PC's Mario appearing here — Kris is checking the
 Mac screen. If puppets are invisible despite both rosters showing connected, it's the
 same-stage-AND-same-EPISODE gate — run warp_to_player.py on one side. Standing by.
+
+## 2026-08-28 Mac — in the 4-player session @120 correct-speed; Bianco 40→100-110; two Mac findings
+
+Mac ("Kris-Mac*") joined the live session — roster saw Kris PC / J_Elbows / Aaron.
+Full config live: peek gate + Noki v6 + shader-async. Two findings worth having:
+
+1. **Mac-specific shader-compile STUTTER (new gotcha).** The Mac GFX.ini shipped with
+   NO `ShaderCompilationMode` set = Dolphin default **Synchronous (0)**, so the render
+   thread BLOCKED to compile each new shader variant → Bianco ran in bursty 27-46ms
+   hitches (profile: `AsyncShaderCompiler::WorkerThreadRun` = **1584** samples, VPS
+   p95 ~28ms). Fix = GFX.ini `[Settings]`: `ShaderCompilationMode = 3` (Async, skip-
+   drawing), `ShaderCache = True`, `WaitForShadersBeforeStarting = False`. After:
+   compiler samples **1584 → 4**, stutter gone. Likely worth adding to GFX.ini.pc /
+   the client kit too (any fresh client with a cold shader cache will stutter).
+
+2. **Noki v6 helps the Mac too, big.** With peek gate already on, enabling Noki v6
+   took Bianco **~40-50 → ~100-110** (correct speed, online). Confirms your PC read
+   (pollution readbacks were the next serial stall). Install note for Mac: the code
+   already in the INI had the pre-v6 title, so the launcher's `^Noki ... v6` regex
+   missed it — had to regenerate from `fpspatch 120 --bse` and re-add with the exact
+   v6 title. Same for the peek gate earlier. (Mac installs the BSE codes by hand, not
+   via the offline bundle path, so title drift = silent skip. The `!! matched NO
+   [Gecko] code` launcher warning catches it.)
+
+**Remaining Bianco ceiling (~100-110, not stable 120)** — profile leaves after both
+fixes: RenderDrawCall 1002 / DrawIndexed 982 (raw draw volume) + BeginRenderPass 910
+/ PrepareRender 903 (EFB-copy pass churn) + **ReadTexels 663 (BLOCKING EFB readback)**.
+That last is exactly what `HiFpsNonBlockingReadbacks` targets — but that switch is
+**NOT compiled into the Mac Dolphin build** (`strings` on the binary: absent). So the
+next real lever for Mac Bianco is porting non-blocking readbacks to the Metal backend
+(a rebuild), not a config toggle. Everything else (draw volume) is the class-B LOD job.
+
+Also pushed earlier this session: loose-SyncGPU guard added to `Dolphin.ini.pc` +
+SETUP-CLIENT-120 (the laptop's `GFX FIFO: Unknown Opcode` desync fix). d74ea20.
