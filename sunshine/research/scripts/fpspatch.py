@@ -1660,12 +1660,14 @@ def _anmrate_block(addr, mode, orig, nmul=2):
                  ] + [_fmuls(rate, rate, s2)] * nmul
     return _c2(addr, words)
 
-def anmrate(nmul=2):
+def anmrate(nmul=2, sites=None):
     """`nmul` halvings of the raw rate.  The STOCK bundle always uses 2 (x0.25):
     calc_anim is pinned at 120 Hz by substep_granularity() at every G, so the
     scale is the constant 30/120.  The BSE companion has no substep retune and
-    passes log2(FPS/30) instead — see bse_anmrate()."""
-    return "\n".join(_anmrate_block(a, m, o, nmul) for a, m, o in ANMRATE_SITES)
+    passes log2(FPS/30) instead — see bse_anmrate().  `sites` narrows the
+    emitted subset (default: all of ANMRATE_SITES)."""
+    return "\n".join(_anmrate_block(a, m, o, nmul)
+                     for a, m, o in (ANMRATE_SITES if sites is None else sites))
 
 
 # ---- Animal movement-rate fix (birds fly at 1/4 speed) ----------------------
@@ -2201,10 +2203,22 @@ def bse_timerfix(fps=120):
 # to the shipping block) and 0.125 at 240.  Corroborated by HANDOFF-PC-240's
 # "anmrate anims (Petey/Gooper ~8x)" under bare BSE at 240: 8x fast needs /8.
 # Emitted as log2(FPS/30) successive `fmuls fR,fR,0.5f`, which is exact.
-def bse_anmrate(fps=120):
+def bse_anmrate(fps=120, sites=None):
     n = int(fps // 30)
     assert n & (n - 1) == 0, f"FPS/30 = {n} is not a power of two"
-    return anmrate(nmul=n.bit_length() - 1)
+    return anmrate(nmul=n.bit_length() - 1, sites=sites)
+
+
+# The 2026-08-14 in-game A/B quarantined the BLANKET family (froze water-slide/
+# bonk-star/warp anims — BSE natively compensates those consumers), but the
+# Petey site 0x800955CC has the opposite verdict trail: the hand-written v16
+# block at that site was IN-GAME-CONFIRMED, and HANDOFF-PC-240 observed
+# "Petey/Gooper ~8x" fast under bare BSE — i.e. NOT natively compensated.
+# Split it out so the boss fix ships while the freezing members stay dark.
+ANMRATE_PETEY_SITE = ANMRATE_SITES[0]          # (0x800955CC, store) — ex-v16
+
+def bse_anmrate_petey(fps=120):
+    return bse_anmrate(fps, sites=[ANMRATE_PETEY_SITE])
 
 
 # ---- Animal ×4 movement/duration under BSE — UNGATED, NEWLY GUARDED ---------
@@ -2667,8 +2681,14 @@ def bse_build(fps):
          bse_jump_chain(fps)),
         (f"$Game-clock fix v15 {tag} (self-gated on {g:g}.0f; NEEDS-TEST)",
          bse_timerfix(fps)),
+        # The family MINUS the Petey site (quarantined: froze water-slide/
+        # bonk-star/warp anims in-game 2026-08-14 — BSE natively compensates
+        # those members). Petey ships separately below.
         (f"$Raw anim-rate x{30 / fps:g} fixes {tag} (self-gated on !=0.5f; "
-         "NEEDS-TEST)", bse_anmrate(fps)),
+         "NEEDS-TEST)",
+         bse_anmrate(fps, sites=ANMRATE_SITES[1:])),
+        (f"$Anim-rate Petey vomit-window {tag} (ex-v16 site only; self-gated; "
+         "NEEDS-TEST)", bse_anmrate_petey(fps)),
         # Animal x4 movement speed / nerve duration are DELIBERATELY absent.
         # Verdict from the Aug-12 kit chat, re-confirmed in-game 2026-08-14 and
         # codified on the Mac (launcher BASELINE_FIXES): the stock-kit x4

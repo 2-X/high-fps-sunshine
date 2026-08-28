@@ -461,6 +461,11 @@ BASELINE_FIXES = [
     # at every kit rate. x4 restore at the jumpSlipEvents threshold compare
     # (USA 0x80258D60), guarded. HANDOFF-JUMPCHAIN-BUG.md.
     ("jumpchain", r"^Jump-chain window x4 BSE",              True),
+    # Petey's anim-rate site split out of the quarantined blanket family: the
+    # v16-era block at 0x800955CC was in-game-confirmed, and Petey runs fast
+    # under bare BSE (not natively compensated). The "Raw anim-rate" family
+    # itself STAYS quarantined (froze anims 2026-08-14).
+    ("petey",     r"^Anim-rate Petey vomit-window BSE",      True),
     ("shimmer",   r"Heat-haze shimmer pace",                 True),
     ("gameclock", r"Game-clock fix v15 BSE",                 True),
     # rate-suffixed scale in the title: x0.25 at 120, x0.125 at 240
