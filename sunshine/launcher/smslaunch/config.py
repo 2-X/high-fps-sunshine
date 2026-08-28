@@ -442,6 +442,14 @@ BASELINE_FIXES = [
     # the offline in-game verdict + guard safety; first BSE in-game pass
     # 2026-08-27 night (Bianco online sat at the ~170 pre-gate ceiling).
     ("peekgate",  r"EFB peek 30Hz gate BSE",                 True),
+    # v6 ONLY (^-anchored, " v6" required: the quarantined v5 "FREEZES" title
+    # must never match). Enabled 2026-08-27 night for the first BSE in-game
+    # test: with the peek gate live, Bianco online still sat at the pre-gate
+    # ~170-177 — the pollution readbacks are the remaining stall (the "no
+    # Vulkan win" verdict predates the peek gate). REQUIRES the J3D
+    # duplicate-entry guard (HARDENING_FIXES enables it every launch); if
+    # Bianco freezes with this on, flip to False and relaunch.
+    ("noki",      r"^Noki pollution 30Hz gate BSE-\d+ v6",   True),
     ("shimmer",   r"Heat-haze shimmer pace",                 True),
     ("gameclock", r"Game-clock fix v15 BSE",                 True),
     # rate-suffixed scale in the title: x0.25 at 120, x0.125 at 240
