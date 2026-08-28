@@ -26,19 +26,49 @@ Mechanism (verified against the decompiled launcher/server code and the
   everyone's disc/game folder carries the stock 14 packs, everyone sees
   everyone. No pack → that player renders as retail Mario for you.
 
+## The id table (pick any skin)
+
+`--skin` name (Mac/bridge) is the display name lowercased with spaces → `-`.
+The dropdown (official launcher) uses the display name. The id is only needed
+if you select by raw id.
+
+| Display name  | `--skin` name   | model id   |
+|---------------|-----------------|------------|
+| Mario (retail)| `mario`         | *(empty)*  |
+| Luigi         | `luigi`         | `cadf67c6` |
+| Il Piantissimo| `piantissimo`   | `9f79b83f` |
+| Shadow Mario  | `shadow-mario`  | `9598bd9d` |
+| Shadow Luigi  | `shadow-luigi`  | `cc27492b` |
+| Shadow        | `shadow`        | `23704068` |
+| Wario         | `wario`         | `3c297fff` |
+| Waluigi       | `waluigi`       | `78044865` |
+| Yoshi         | `yoshi`         | `f130b25e` |
+| Birdo         | `birdo`         | `1b683fc7` |
+| Sonic         | `sonic`         | `841192a3` |
+| Needle        | `needle`        | `0654567c` |
+| Nokissia      | `nokissia`      | `6121808b` |
+| Daytendo      | `daytendo`      | `36de327c` |
+| Nightendo     | `nightendo`     | `5d82421c` |
+
 ## Windows players (e.g. the official-launcher setup)
 
 Nothing from this repo is required. `BSMSO.Launcher.exe` syncs the
 `CustomModels/` packs into the game folder automatically and has a **"Mario
-model" dropdown** — pick Luigi there. Done.
+model" dropdown** — pick your skin there (Luigi, Il Piantissimo, whatever).
+Done.
 
 If instead you boot a **prebuilt ISO** the way the Mac does (no launcher),
-install the packs into the extracted root and rebuild:
+install the packs into the extracted root and rebuild (one-time; bakes in
+*all* 14 skins, then select per-launch), then pass `--skin <name>` to the
+bridge:
 
 ```
 pip install pyisotools
 python sunshine/bsmso/mac-online/skins_install.py --rebuild \
     --packs <path-to>/BSMSO_1.1/CustomModels --work <path-to>/bsmso-work
+# then, when launching the bridge:
+python sunshine/bsmso/mac-online/bridge.py --server <host> --name John \
+    --skin piantissimo
 ```
 
 ## Mac (this machine)
