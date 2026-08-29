@@ -164,6 +164,7 @@ disabling the stock bundle removed the fix and BSE does not cover it.
 | 36 | PC 240fps online | 240 online unsupported | BSE has no FPS_240 case (`mFPSValue=3` hits uninitialized paths) | N/A | BSE fork with FPS_240/280/320 BUILT 2026-08-12 (`bsmso/BetterSunshineEngine-highfps-v400.kxe`, in `BSMSO-GMSE01-highfps.iso`); ⚠ new kxe shifts `mFPSValue` off `0x8051E528`: bridge poke + `$BSE Force 120` addr are old-kxe-only | IN-PROGRESS (fork built, boot-test pending) |
 | 37 | Pachinko FLUDD "suction" | Top-left red coin nearly unreachable at 120; hover pulls Mario toward the middle (Delfino pachinko secret) | UNSOLVED. CUE_MOVE is 120Hz-pinned at every rate, so the naive rate theory fails; suspects: per-render splash/particle pushes, input-poll-rate, spawn-count effects | none; see `HANDOFF-PACHINKO-BUG.md` (diagnosis only, never reproduced under instrumentation) | untested | PENDING (diagnosis only) |
 | 38 | Menu key-repeat 4x (BSE) | Holding up/down in save-select / in-level pause races through options; Delfino pause immune (2-item menu = idempotent repeats) | Repeat delay/interval (`20/6 ÷ SMSGetAnmFrameRate` = 10/3 TICKS, correct) counted by `read()` which BSE runs ungated at 120Hz (stock kit was immune via input_latch) | N/A at stock | `$Menu key-repeat BSE-120 fix v1` C2 @`0x802A89C8` (`slwi ×4` on r5/r6 pre-`setButtonRepeat`, ==2.0f guard), installed 2026-08-13 | NEEDS-TEST (BSE) |
+| 39 | Shadow Mario chase off-path / wall-jam | Pinna Park intro chase: the runaway Shadow Mario (`TEMario`) drifts off his path, jams into a wall, then teleports forward past it — worse at higher G | The run-away escape state machine runs on the PER-RENDERED-FRAME AI path (`perform`→vtbl+0xC0 `checkController`→`consider`→nerve 0x10 `emRunAwayToNearestNode` @`0x80041620`): a FRAME counter (`+0x42a4`, inc @`0x80041AE0`) drives fixed thresholds, a per-frame lead-point march, and position SNAPS. The BODY moves per-SUBSTEP (`moveObject`→vtbl+0xC4 `playerControl`, 120Hz-pinned, FPS-invariant). At high FPS the schedule+snaps fire G× too early while the body has travelled 1/G of the distance → drift, wall-clip, then the schedule's own snap warps him forward. NOT anmrate (never calls SMSGetAnmFrameRate). | `runaway_gate()` C2 @`0x80041620`: gate the whole AI tick to 1-in-G rendered frames (native 60Hz) — skip path `blr`s from the cave (entry is `mflr r0`, LR live), counter in r12 (r0-as-rA is the literal 0), self-gated on framerate global `!=0.5f` | `bse_runaway_gate()` guarded (==2.0f) block, divisor G; emitted by `fpspatch --bse`, in `bse_build()` | AUTHORED 2026-08-28, verified `--check` (120/180/240 stock, 120/240 BSE); NEEDS-TEST (both engines) |
 
 ---
 
@@ -551,6 +552,28 @@ Installed + ENABLED in the live INI: guarded Noki v3+copy (13), StarFix v4 (14),
 the companion alongside the stock 120 bundle: same C2 hook addrs.**
 **Still open under BSE:** live tests of all of the above, blue-coin recal (9), Poink v14
 re-test (12), SE ear-test (15), walk/run AnimId capture (35), PC 240 BLOCKED (36).
+
+**2026-08-29 (landing lag CLOSED — it was the jump-chain family itself):** two
+findings. (1) **The fix had never executed.** The v3 code was in the live
+`GMSE01.ini` `[Gecko]` and absent from `[Gecko_Enabled]` on a freshly-written
+INI, because `smslaunch/config.py`'s `BASELINE_FIXES` row gated it
+`verified=False`. v1→v2→v3 were authored, `--check`ed and documented across two
+days without one line running in-game — *when a fix "doesn't work", diff
+`[Gecko]` against `[Gecko_Enabled]` before re-deriving anything.* (2) **There is
+nothing to fix.** `mStatusTimer` is the ONLY timer in `jumpSlipEvents`
+(`lhz r5,0x86(r3)` @0x80258D50 vs `lha r0,0(r4)` @0x80258D60), so the chain
+window IS the post-landing slip lockout: stock BSE-120 = 16 ticks @120Hz =
+**133ms** (snappy — vanilla is 533ms), v3's ×2 = 267ms, v1/v2's ×4 = 533ms = the
+reported stun. Kris live at BSE-120 with the family disabled: *"landing lag
+didn't happen on restart."* **Confirmed-good landing config = the family OFF.**
+v4 splits v3's welded block into `$Landing momentum BSE-<fps> v4` (the
+jumpSlipCommon 0.98/tick `mForwardVel` retune, toggle `landingmomentum`) and
+`$Jump-chain window x2 BSE-<fps> v4` (the three chain-record writes, toggle
+`jumpchain`) so they can be A/B'd — they pull opposite directions on landing
+feel. **Both default OFF.** John's triple-jump complaint (#39-adjacent) is
+UNFIXED by choice: one counter cannot give both an easy triple jump and a snappy
+landing; enabling `jumpchain` is a per-client trade, not a shared-code decision.
+A real fix needs a second timer. `HANDOFF-JUMPCHAIN-BUG.md`.
 
 **2026-08-28 (BSE-60 companion):** `fpspatch.py --bse` generalized to emit an
 **FPS_60** companion bundle (`bse_supported` now admits G=1; `bse_sim_fps`

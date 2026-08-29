@@ -23,11 +23,12 @@ MEM1_MIN_SIZE = 0x01800000
 
 
 def find_mem1_base(mem: DolphinMem, timeout_s: float = 30.0) -> bool:
-    """Locate MEM1 by the GMSE01 header at a region base; set the host base."""
+    """Locate MEM1 by the Sunshine-family disc header (GMSE**) at a region base;
+    set the host base. Matches GMSE01 (retail/BSMSO) and GMSE11 (Sunset)."""
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         for rb, rs in mem._regions():
-            if rs >= MEM1_MIN_SIZE and mem._raw_read(rb, 6) == b"GMSE01":
+            if rs >= MEM1_MIN_SIZE and mem._raw_read(rb, 4) == b"GMSE":
                 mem._mem1_host_base = rb
                 return True
         time.sleep(1.0)
@@ -57,7 +58,7 @@ def main():
     print(f"[fps] Dolphin pid={pid}")
 
     if not find_mem1_base(mem):
-        sys.exit("MEM1 not found — is a game booted (GMSE01 header not present)?")
+        sys.exit("MEM1 not found — is a game booted (GMSE** header not present)?")
     print(f"[fps] MEM1 located (host base 0x{mem._mem1_host_base:x})")
 
     # The BSE module registers its Setting objects a few seconds into boot —

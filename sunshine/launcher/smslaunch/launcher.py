@@ -379,6 +379,12 @@ def apply(profile: dict, *, log=_noop, force=False):
         ini.add_code(C.J3D_GUARD_TITLE, C.J3D_GUARD_CODE)
         log(f"Installing ${C.J3D_GUARD_TITLE}…")
 
+    # 1a5. ALWAYS-ON hardening: the MActor::perform null-this guard (both discs).
+    #      Ensure the body exists; HARDENING_FIXES enables it every launch.
+    if C.MACTOR_GUARD_TITLE not in ini.titles():
+        ini.add_code(C.MACTOR_GUARD_TITLE, C.MACTOR_GUARD_CODE)
+        log(f"Installing ${C.MACTOR_GUARD_TITLE}…")
+
     # 1b. generate the FOV code (at the vertical fovy for this hFOV+aspect), or
     #     skip entirely when FOV is left blank (keep the game's stock FOV) -------
     vfov = vfov_of(profile)

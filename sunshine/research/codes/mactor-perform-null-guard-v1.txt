@@ -1,0 +1,19 @@
+$MActor perform null-this guard v1 (skip perform when actor ptr is NULL)
+* "Invalid read from 0x00000039, PC = 0x802392c4" — a read of address 0x39,
+* i.e. this+0x39 with this == NULL, inside MActor::perform (0x802391bc).
+* Root cause: MActor::perform is called on a NULL actor. The prologue tests
+* the cue mask (rlwinm. r0,r4,0,30,30 @0x802391c4) and when cue bit 0x2 is
+* CLEAR it branches straight to 0x802392bc (beq @0x802391dc), skipping every
+* early this->0x28 dereference — so a null this survives to the cue-bit-0x4
+* draw path's flag load `lbz r0,0x39(r31)` @0x802392c4 and reads 0x39. Base
+* main.dol code on BOTH discs; 55 direct bl callers + vtable dispatch reach
+* here, so guard AT THE ENTRY to cover every path. Framerate- and BSE-
+* independent (r3==0 is a missing-actor sentinel, not a framerate value).
+* Guard: cmpwi r3,0 at the very prologue — first insn is `mflr r0`, LR still
+* holds the caller and no stack frame is set up yet, so on null `blr` is a
+* clean return to the caller (perform is a correct no-op on a missing actor);
+* non-null re-executes the original `mflr r0` and resumes. Clobbers only cr0.
+C22391BC 00000003
+2C030000 40820008
+4E800020 7C0802A6
+60000000 00000000

@@ -1738,6 +1738,73 @@ def animal_duration():
     return _c2(ANIMAL_DURATION_HOOK, words)
 
 
+# ---- Shadow Mario chase run-away 60Hz gate (Pinna intro off-path / wall-jam) -
+# The Pinna Park intro chase (you chase the runaway Shadow Mario = TEMario, a
+# TEnemyMario, across the beach to the park gate) drifts him SLIGHTLY off his
+# path at high FPS, jams him into a wall, then teleports him forward past it.
+#
+# ROOT CAUSE: TEMario's run-away brain runs on the PER-RENDERED-FRAME path, not
+# per substep.  TLiveActor::perform -> vtable +0xC0 checkController__11TEnemyMario
+# (0x8004010C) -> consider (0x80040A3C) -> nerve 0x10 emRunAwayToNearestNode
+# (0x80041620).  Its whole schedule is a FRAME COUNTER: +0x42a4 is incremented
+# once per call at 0x80041AE0 and dispatched (0x800416B8) against fixed frame
+# thresholds {8,100,200,220,300}; state 0x64 also marches a "lead point"
+# (+0x42e0) a FIXED step per frame, and states 0xC8/0x12C SNAP Mario's real
+# position/heading to that lead point / the next graph node.  Meanwhile the BODY
+# moves via TLiveActor::moveObject -> vtable +0xC4 playerControl (0x8004006C) =
+# per-SUBSTEP velocity integration, which is pinned at 120 Hz and so is
+# FPS-invariant (correct real speed at every G).  At high FPS the render path
+# fires 60*G Hz, so the schedule + lead march + snaps complete in 1/G of the
+# intended wall-clock time while the body has physically travelled only a
+# fraction of the distance: he clips the wall between snaps (drift), sticks, and
+# the next scheduled snap warps him forward.  (The "teleport" is the schedule's
+# own position snap, NOT a doShortCut stuck-recovery.)  Not an ANMRATE bug: the
+# run-away path never calls SMSGetAnmFrameRate; movement is substep-invariant.
+#
+# FIX: gate the ENTIRE emRunAwayToNearestNode tick to native 60 Hz = run it on
+# 1-in-G rendered frames, exactly reproducing stock (where the 60 Hz AI runs
+# every OTHER 120 Hz substep).  On skipped frames the actor keeps running on the
+# held heading via the untouched per-substep physics.  The function entry is a
+# clean `mflr r0`, so the skip path can `blr` straight back to checkController
+# with LR still live (the peek_gate/SE30 shape).  Gated on the framerate global
+# != 0.5f so it is inert at native speed / without the bundle.  Divisor is G
+# (FPS/60), NOT the 120 Hz substep rate — the schedule wants stock 60 Hz.
+# One counter, no owner guard: the Pinna chase has a single runaway; if two
+# TEnemyMarios ever shared the hook the cadence just relaxes toward ungated,
+# which is harmless (unlike the turnaround face-ring, sharing corrupts nothing).
+RUNAWAY_HOOK = 0x80041620      # emRunAwayToNearestNode__11TEnemyMario entry
+RUNAWAY_ORIG = 0x7C0802A6      # mflr r0 — first insn, dol-verified
+RUNAWAY_CTR  = 0x1708          # low-arena scratch; slot map at WIPE_CTR (free:
+                               # 0x1700/4 peek, 0x1720+ turnaround)
+
+def runaway_gate(fps):
+    """Run TEMario's run-away state machine on 1-in-G rendered frames (native
+    60 Hz).  None when G = FPS/60 is not an integer > 1 (no exact cadence)."""
+    g = integer_g(fps)
+    if not g or g < 2:
+        return None
+    # Counter is held in r12, NOT r0: `addi rD,r0,imm` uses the literal 0 for the
+    # rA=r0 form, so an r0 counter never increments (it would freeze the runaway).
+    return _c2(RUNAWAY_HOOK, [
+        0x3D808041,                    # lis   r12,0x8041
+        0x800C67B8,                    # lwz   r0,0x67B8(r12)  framerate global
+        0x3C803F00,                    # lis   r4,0x3F00       0.5f
+        0x7C002000,                    # cmpw  r0,r4
+        0x4182002C,                    # beq   RUN  (stock/native -> inert)
+        0x3D608000,                    # lis   r11,0x8000
+        0x818B0000 | RUNAWAY_CTR,      # lwz   r12,ctr(r11)
+        0x398C0001,                    # addi  r12,r12,1
+        0x2C0C0000 | g,                # cmpwi r12,G
+        0x41800010,                    # blt   STORE_SKIP  (ctr<G -> skip frame)
+        0x39800000,                    # li    r12,0        (ctr==G -> reset)
+        0x918B0000 | RUNAWAY_CTR,      # stw   r12,ctr(r11)
+        0x4800000C,                    # b     RUN
+        0x918B0000 | RUNAWAY_CTR,      # STORE_SKIP: stw r12,ctr(r11)
+        0x4E800020,                    # blr — gated: skip this AI tick, LR live
+        RUNAWAY_ORIG,                  # RUN: mflr r0 (original first insn)
+    ])
+
+
 def framerate_word(fps):
     """float(FPS/60) as an 8-hex-digit big-endian word for the 04 write."""
     return struct.pack(">f", fps / 60.0).hex().upper()
@@ -1754,7 +1821,7 @@ def build(fps, forceopen=True, anmrate_fix=True, substep=True, audio=True,
           cogwheel=True, input_latch_fix=True, select_fix=True, wipe_opt=True,
           turnfix=True, wipe_pace_fix=True, audio_pump=True, thp_pace_fix=True,
           riccohook=True, wipe_swap=True, shimmer=True, boidfix=True,
-          peekgate=True):
+          peekgate=True, runawayfix=True):
     g = integer_g(fps)
     gate_g = g or 2                            # non-integer G: fall back to 1-in-2
     parts = [base(framerate_word(fps)), particles(gate_g), PROXIMITY_GLOW]
@@ -1815,6 +1882,10 @@ def build(fps, forceopen=True, anmrate_fix=True, substep=True, audio=True,
         bg = boid_gate(fps)                    # CALC_ANIM class: constant parity 2
         if bg:
             parts.append(bg)
+    if runawayfix:
+        rg = runaway_gate(fps)                 # per-frame AI class: 1-in-G (60Hz)
+        if rg:
+            parts.append(rg)
     if noki:
         ng = noki_gate(fps)
         if ng:
@@ -2095,6 +2166,33 @@ def bse_peek_gate(fps=120):
                       block(SUN_PEEK_HOOK, SUN_PEEK_CTR)])
 
 
+def bse_runaway_gate(fps=120):
+    """runaway_gate with a BSE guard: TEMario's run-away AI state machine gated
+    to native 60Hz = 1-in-G rendered frames. Guard-fail => the original mflr r0
+    runs and falls through into the function (stock: AI every rendered frame).
+    Entry-hook/blr shape identical to bse_peek_gate; r0/r11/r12/cr0 are dead at
+    the function entry (r3=this is preserved), so the default guard triple is
+    safe. Divisor is G=FPS/60 (native 60Hz), a power of two at every BSE rate."""
+    g = integer_g(fps)
+    if not g or g < 2:
+        return None
+    w0 = [0x3D608000,                                # lis   r11,0x8000
+          0x818B0000 | RUNAWAY_CTR,                  # lwz   r12,ctr(r11)
+          0x398C0001,                                # addi  r12,r12,1
+          0x918B0000 | RUNAWAY_CTR]                  # stw   r12,ctr(r11)
+    if g & (g - 1) == 0:                             # 2 at 120, 4 at 240
+        w0.append(_andi_(12, 12, g - 1))             # andi. r12,r12,G-1
+    else:                                            # unreachable under bse_supported
+        w0 += [_li(11, g), _divwu(0, 12, 11),        # (G is a power of two there)
+               _mullw(0, 0, 11), _subf_(0, 0, 12)]
+    i_orig = 5 + len(w0) + 2                          # index of RUNAWAY_ORIG
+    w = _bse_guard(i_orig, fps=fps) + w0 + [
+        0x41820008,                                  # beq +8 -> CONT (run this frame)
+        0x4E800020,                                  # blr — gated: skip the AI tick
+        RUNAWAY_ORIG]                                # CONT: mflr r0 (orig)
+    return _c2(RUNAWAY_HOOK, w)
+
+
 # ---- jump-chain window under BSE (John's 2026-08-28 A/B) --------------------
 # TMario::jumpSlipEvents (USA 0x80258D24; jumpSlipCommon 0x80258E5C): the
 # double/triple-jump chain window is `mStatusTimer >= rec->mMaxTimer` with
@@ -2135,50 +2233,133 @@ def bse_peek_gate(fps=120):
 # (E0). Records +0x74/+0x88/+0x9C keep stock values: their short real-time
 # recovery under BSE is the desired feel, and John's verified double/triple
 # A/B never depended on them. HANDOFF-JUMPCHAIN-BUG.md has the full report.
+#
+# ---- v3 (2026-08-28 late): x2 EVERYWHERE + the real momentum bug ----------
+# THE CHAIN WINDOW AND THE LANDING LOCKOUT ARE THE SAME COUNTER. Confirmed by
+# disassembly: jumpSlipEvents' only timer is mStatusTimer (mario+0x86,
+# `lhz r5,0x86(r3)` / `addi r0,r5,1` / `sth` @0x80258D50..58) compared against
+# `lha r0,0(r4)` = rec->mMaxTimer @0x80258D60/64 — `blt` stays in the slip
+# state, otherwise it transitions out. There is no second field, so lengthening
+# the chain window necessarily lengthens the slip state the player is stuck in.
+# And the three records v2 scales are ALSO the three most common landings
+# (+0x38 = normal jump, +0x4C = fall, +0x60 = double jump); +0x74/+0x88/+0x9C
+# are the RARE ones (side-flip / triple / long-jump). So v2's x4 at 120/240 was
+# a 64-tick (533ms) slip state on every ordinary landing — that IS the reported
+# stun, and no per-record split can decouple it.
+#
+# v3 therefore uses a CONSTANT x2 (-> 32 ticks) at every supported rate rather
+# than the render-cadence ratio min(fps,120)/30:
+#   * at FPS_60 the emitted value is UNCHANGED (2 * 16 = 32, same as v2's
+#     min(60,120)/30 = 2) — the 60 bundle Kris already blessed and shipped
+#     stays byte-identical on these three lines;
+#   * at FPS_120/240 it halves 64 -> 32, i.e. the 267ms window Kris explicitly
+#     chose at 120, instead of vanilla's 533ms.
+# It is a deliberate FEEL constant, not a cadence divisor — do not "fix" it
+# back to a G-derived expression.
+#
+# v3 also fixes the ACTUAL momentum bug that the window scaling was papering
+# over. TMario::jumpSlipCommon @0x80258E5C (six callers, one per slip handler,
+# each paired with a jumpSlipEvents call) applies a PER-TICK friction:
+#     80258E98  lfs   f1,0xB0(r28)        ; mForwardVel
+#     80258E9C  lfs   f0,-0xE7C(r2)       ; r2 = 0x80416BA0 -> 0x80415D24 = 0.98f
+#     80258EA0  fmuls f0,f1,f0
+#     80258EA4  stfs  f0,0xB0(r28)
+# 0.98 per tick is calibrated for the native 30 Hz status cadence; under BSE the
+# status machine ticks at min(fps,120) Hz, so the speed bleeds off k = min(fps,
+# 120)/30 times too fast in WALL CLOCK (2x at 60, 4x at 120/240) — you land and
+# your run speed is gone, which reads as "stuck" independently of the timer.
+# Fix = rewrite the literal to 0.98**(1/k) so k BSE ticks equal one vanilla
+# tick: 0.98^(1/2) = 3F7D6D54 at FPS_60, 0.98^(1/4) = 3F7EB5D5 at 120/240.
+# A plain Gecko 04 data write is safe here: a full-DOL scan (r2-relative,
+# r13-relative and lis/addi absolute forms, base main.dol AND the BSE release
+# main.dol — identical __init_registers, r2 = 0x80416BA0) finds EXACTLY ONE
+# reader of 0x80415D24, the lfs at 0x80258E9C. Nothing else shares the literal,
+# so no C2 is needed to scope the change.
 JUMPCHAIN_HOOK = 0x80258D60    # v1's C2 site — kept so --check REJECTS v1
 JUMPSLIP_RECS = 0x803DD1E0     # dispatcher r31; records at +0x38..+0x9C
 JUMPCHAIN_CHAIN_RECS = (0x803DD218, 0x803DD22C, 0x803DD240)  # ->881,881,882
 JUMPCHAIN_STOCK = 16           # stock mMaxTimer in all three chain records
+JUMPCHAIN_MULT = 2             # v3: CONSTANT feel multiplier, NOT a divisor
 
-# The three landing/getup records (+0x74/+0x88/+0x9C) v2 left stock. Their
-# mMaxTimer is the same s16 at the record base (upper halfword of the 32-bit
-# word — a value of 8 reads back as 0x00080000 at 0x803DD254, confirmed in live
-# RAM), ticked by the SAME render/status-paced machine as the chain records. At
-# FPS_60 the status machine runs at 60 Hz, so these recover ~2x slower in wall
-# clock than at 120 (267ms vs the pleasant 133ms) -> a landing "stun." Scale
-# them by min(fps,120)/120 (0.5 at 60, 1.0 at 120/240) to restore the 120 feel.
-# factor==1 at 120/240 => stock value => EMIT NOTHING (byte-identity constraint;
-# only FPS_60 changes). Kris live-poked 8/2/12 at 60 and confirmed it's better.
-JUMPCHAIN_LANDING_RECS = (
-    (0x803DD254, 16),   # +0x74 max=16
-    (0x803DD268, 4),    # +0x88 max=4
-    (0x803DD27C, 24),   # +0x9C max=24
-)
+# The other three JumpSlipRecords (+0x74 side-flip / +0x88 triple / +0x9C
+# long-jump landings, stock mMaxTimer 16/4/24). v3 leaves them STOCK at every
+# rate. A short-lived b1391e6 block scaled them by min(fps,120)/120 at fps<120
+# chasing the "landing stun"; that premise is refuted — the stun comes from the
+# COMMON landings (the chain records above) plus the momentum bleed, not from
+# these rare ones. Kept here only so _check_bse can assert they are never
+# written.
+JUMPCHAIN_LANDING_RECS = (0x803DD254, 0x803DD268, 0x803DD27C)
+
+# TMario::jumpSlipCommon's per-tick mForwardVel friction literal (sole reader:
+# the lfs at 0x80258E9C; see the block comment above).
+JUMPSLIP_DECAY = 0x80415D24
+JUMPSLIP_DECAY_STOCK = 0.98    # DOL word 3F7AE148, calibrated for 30 Hz ticks
+
+
+def bse_jump_decay_word(fps):
+    """The rewritten jumpSlipCommon friction literal: 0.98**(1/k) where
+    k = bse_status_fps(fps)//30 is how many BSE status ticks fit in one native
+    30 Hz tick (2 at FPS_60, 4 at FPS_120/240 — min() caps the status machine
+    at 120 Hz). k applications of the new constant equal one application of the
+    stock 0.98, so post-landing deceleration matches vanilla in WALL CLOCK.
+    -> 3F7D6D54 (0.98994949) at 60, 3F7EB5D5 (0.99496204) at 120/240."""
+    k = bse_status_fps(fps) // 30
+    return struct.unpack(">I", struct.pack(">f",
+                                           JUMPSLIP_DECAY_STOCK ** (1.0 / k)))[0]
+
+
+def bse_landing_momentum(fps=120):
+    """v4a — THE LANDING-LAG FIX, on its own toggle.
+
+    One 04 word write retuning jumpSlipCommon's per-tick mForwardVel friction
+    from 0.98 to 0.98**(1/k), k = bse_status_fps(fps)//30.  Under a Gecko
+    32-bit if-equal on the framerate global (BSE rewrites it every gameplay
+    frame, so the block self-scopes to the target rate exactly like the C2
+    guards), closed with a full E0 terminator.
+
+    Split out of v3 (2026-08-29).  v3 welded this to the chain-window writes in
+    one code, and the combined block sat installed-but-DISABLED in every kit
+    (config.py's `jumpchain` toggle defaulted False), so the landing fix never
+    ran once — that is the whole reason "landing lag" survived three rounds of
+    "fixes".  The two halves also pull in OPPOSITE directions on landing feel:
+    this one shortens the recovery (you keep your run speed), the window one
+    lengthens the slip state.  Welded together they cannot be A/B'd, so they
+    ship as two codes with independent toggles.
+
+    A plain 04 data write is in scope: a full-DOL scan (r2-relative,
+    r13-relative and lis/addi absolute forms, base main.dol AND the BSE release
+    main.dol — identical __init_registers, r2 = 0x80416BA0) finds EXACTLY ONE
+    reader of 0x80415D24, the lfs at 0x80258E9C."""
+    return "\n".join([
+        f"20{FRAMERATE_GLOBAL & 0x01FFFFFF:06X} {bse_fps_word(fps):08X}",
+        f"04{JUMPSLIP_DECAY & 0x01FFFFFF:06X} {bse_jump_decay_word(fps):08X}",
+        "E0000000 80008000",
+    ])
+
 
 def bse_jump_chain(fps=120):
-    """Scale the three chain-feeding JumpSlipRecord mMaxTimers by the
-    RENDER/STATUS-machine cadence ratio bse_status_fps(fps)/30 = min(fps,120)/30
-    — 2 at FPS_60, 4 at 120/240. The status machine is RENDER-paced (ticks once
-    per rendered frame), NOT substep-paced, so this is bse_status_fps, NOT
-    bse_sim_fps (which is a constant 120 for the truly substep-paced siblings:
-    blue-coin, shimmer). x4 at 120/240 is right because min() caps at 120; x2
-    at 60 is the fix — the constant-120 bse_sim_fps over-scaled to x4 at 60,
-    stretching the chain/landing window 2x too long (the BSE-60 landing stun).
-    Emitted as data writes under a Gecko if-equal on the framerate global."""
-    k = bse_status_fps(fps) // 30
-    want = JUMPCHAIN_STOCK * k
+    """v4b — the chain WINDOW only: widen the three chain-feeding
+    JumpSlipRecord mMaxTimers by the CONSTANT JUMPCHAIN_MULT (16 -> 32 ticks at
+    EVERY supported rate), as three 02 halfword writes under the same guard.
+
+    The multiplier is deliberately NOT the render/status cadence ratio
+    min(fps,120)/30 that v2 used. mStatusTimer is the ONLY timer in
+    jumpSlipEvents, so the chain window and the post-landing slip lockout are
+    the same counter and cannot be split; v2's x4 at 120/240 therefore bought
+    an easy triple jump with a 533ms lockout on every ordinary landing (the
+    reported stun). 32 ticks = 267ms at the 120 Hz status cadence, the window
+    Kris picked, and it leaves the already-shipped FPS_60 bundle unchanged
+    (min(60,120)/30 was also 2).
+
+    THIS CODE LENGTHENS THE LANDING STATE (133ms -> 267ms at BSE-120): it is
+    the triple-jump knob, not a correctness fix, and it is the only thing in
+    the kit that can re-introduce the landing stun.  Default OFF; turn it on
+    only after the landing feel is confirmed good with bse_landing_momentum
+    alone.  The genuine rate-dependent term is that momentum retune."""
+    want = JUMPCHAIN_STOCK * JUMPCHAIN_MULT
     lines = [f"20{FRAMERATE_GLOBAL & 0x01FFFFFF:06X} {bse_fps_word(fps):08X}"]
     for rec in JUMPCHAIN_CHAIN_RECS:
         lines.append(f"02{rec & 0x01FFFFFF:06X} {want:08X}")
-    # Landing/getup records, scaled by min(fps,120)/120 (0.5 at 60, 1.0 at
-    # 120/240). Only < 1 (i.e. fps < 120) changes the value; at 120/240 the
-    # scaled value equals stock, so we emit NOTHING to keep those bundles
-    # byte-identical. Same s16 halfword field / same guarded 02-write form as
-    # the chain records above, under the SAME 20-if guard and terminator.
-    factor = min(int(fps), 120) / 120
-    if factor < 1:
-        for rec, stock in JUMPCHAIN_LANDING_RECS:
-            lines.append(f"02{rec & 0x01FFFFFF:06X} {int(stock * factor):08X}")
     lines.append("E0000000 80008000")
     return "\n".join(lines)
 
@@ -2831,7 +3012,24 @@ def bse_build(fps):
         # 1-in-2 on the director substep counter, NOT an fps-scaled divisor.
         # Fixes the Gelato reef red-coin fish school outrunning Mario at 120.
         (f"$Boid flocking 30Hz gate {tag} (guarded; NEEDS-TEST)", bse_boid(fps)),
-        (f"$Jump-chain window x4 {tag} v2 (chain records only; NEEDS-TEST)",
+        # Per-rendered-frame AI class (native 60Hz, divisor G): the Pinna intro
+        # chase runaway (TEMario) runs its escape state machine once per frame,
+        # so at BSE 120/240 it drifts off path, jams a wall, and its own
+        # position-snap teleports it forward. Gated to 1-in-G rendered frames.
+        (f"$Shadow Mario chase run-away 60Hz gate {tag} (guarded; NEEDS-TEST)",
+         bse_runaway_gate(fps)),
+        # v4 splits v3's welded block in two so the landing feel and the
+        # triple-jump window are independently toggleable (v3 shipped as ONE
+        # code whose launcher toggle defaulted OFF — the landing fix inside it
+        # never ran). Titles must stay free of a NEVER_ENABLE marker
+        # (switch_rate) and of any bracketed [creator] suffix (Dolphin never
+        # enables those), and must NOT contain the v2/v3 title text —
+        # switch_rate's STALE_TITLES purge is substring-matched.
+        (f"$Landing momentum {tag} v4 "
+         f"(jumpSlipCommon 0.98/tick retuned to the BSE status cadence)",
+         bse_landing_momentum(fps)),
+        (f"$Jump-chain window x2 {tag} v4 "
+         f"(chain records only; LENGTHENS the landing state — triple-jump knob)",
          bse_jump_chain(fps)),
         (f"$Game-clock fix v15 {tag} (self-gated on {g:g}.0f; NEEDS-TEST)",
          bse_timerfix(fps)),
@@ -3207,39 +3405,46 @@ def _check_bse(codes, n_c2, errs, fps=120):
                         f"{real[-1] if real else 0:08X} != the re-executed "
                         f"original {BOID_ORIG:08X} (rlwinm. r0,r4,0,30,30)")
 
-    # g3. Jump-chain window x4 v2 — data form only: the 20-if on the framerate
-    #     global with this rate's word, three 02 halfword writes of 16*4 to the
-    #     chain records, and NO v1 C2 at the shared lha (that form scaled every
+    # g3. Landing momentum v4 + jump-chain window v4 — TWO separate data blocks
+    #     (v3 welded them into one). Each carries its own 20-if on the framerate
+    #     global with this rate's word and its own E0 terminator: the momentum
+    #     block is one 04 word write retuning the jumpSlipCommon friction
+    #     literal; the window block is three 02 halfword writes of 16*2 = 32 to
+    #     the CHAIN records at EVERY rate (a constant feel choice, not a cadence
+    #     divisor — mStatusTimer is the only timer, so window == landing
+    #     lockout). No v1 C2 at the shared lha (that form scaled every
     #     JumpSlipRecord and shipped the landing-stun collateral, 2026-08-28).
     if ("C2", JUMPCHAIN_HOOK) in codes:
         errs.append(f"jump-chain v1 C2 @{JUMPCHAIN_HOOK:08X} present — it "
                     f"scales ALL six JumpSlipRecords (landing/getup stun); "
-                    f"v2 is data writes to the three chain records")
+                    f"v3 is data writes to the three chain records")
     if codes.get(("20", FRAMERATE_GLOBAL)) != bse_fps_word(fps):
-        errs.append(f"jump-chain v2: 20-if on {FRAMERATE_GLOBAL:08X} with "
+        errs.append(f"landing/jump-chain v4: 20-if on {FRAMERATE_GLOBAL:08X} with "
                     f"{bse_fps_word(fps):08X} (float {fps/60:g}) missing")
-    jc_k = bse_status_fps(fps) // 30          # render/status-paced: 2 @60, 4 @120/240
+    jc_want = JUMPCHAIN_STOCK * JUMPCHAIN_MULT      # 32 at 60/120/240 alike
     for rec in JUMPCHAIN_CHAIN_RECS:
-        if codes.get(("02", rec)) != JUMPCHAIN_STOCK * jc_k:
-            errs.append(f"jump-chain v2: 02 write @{rec:08X} != "
-                        f"{JUMPCHAIN_STOCK * jc_k:#06x} (chain record mMaxTimer "
-                        f"x{jc_k}, render-paced min(fps,120)/30)")
-    # Landing/getup records: scaled by min(fps,120)/120 -> present ONLY at
-    # fps<120 (0.5 => 8/2/12 at 60). At 120/240 factor==1 so they equal stock
-    # and MUST be absent (byte-identity with the pre-landing-fix 120/240 bundle).
-    jc_factor = min(int(fps), 120) / 120
-    for rec, stock in JUMPCHAIN_LANDING_RECS:
-        got = codes.get(("02", rec))
-        if jc_factor < 1:
-            if got != int(stock * jc_factor):
-                errs.append(f"jump-chain v2 landing: 02 write @{rec:08X} = "
-                            f"{got if got is None else hex(got)} != "
-                            f"{int(stock * jc_factor):#06x} (landing/getup "
-                            f"mMaxTimer x{jc_factor:g}, render-paced min(fps,120)/120)")
-        elif got is not None:
-            errs.append(f"jump-chain v2 landing: 02 write @{rec:08X} present at "
-                        f"{fps}fps — factor==1 so it equals stock; must be "
-                        f"omitted to keep the 120/240 bundle byte-identical")
+        if codes.get(("02", rec)) != jc_want:
+            errs.append(f"jump-chain window v4: 02 write @{rec:08X} != {jc_want:#06x} "
+                        f"(chain record mMaxTimer x{JUMPCHAIN_MULT}, the "
+                        f"CONSTANT feel multiplier — not a G-derived divisor)")
+    # The momentum fix: 0.98 -> 0.98**(1/k), k = min(fps,120)/30. Sole reader of
+    # 0x80415D24 is the lfs at 0x80258E9C, so a plain 04 write is in scope.
+    jc_decay = codes.get(("04", JUMPSLIP_DECAY))
+    if jc_decay != bse_jump_decay_word(fps):
+        errs.append(f"landing momentum v4: 04 write @{JUMPSLIP_DECAY:08X} = "
+                    f"{'absent' if jc_decay is None else f'{jc_decay:08X}'} != "
+                    f"{bse_jump_decay_word(fps):08X} "
+                    f"(0.98**(1/{bse_status_fps(fps) // 30}) — jumpSlipCommon's "
+                    f"per-tick mForwardVel friction, retuned for the BSE status "
+                    f"cadence)")
+    # The three RARE-landing records (+0x74/+0x88/+0x9C) must stay STOCK at every
+    # rate. b1391e6 briefly scaled them at fps<120 on a refuted premise (the stun
+    # is the COMMON landings + the momentum bleed); a write here is that regression.
+    for rec in JUMPCHAIN_LANDING_RECS:
+        if ("02", rec) in codes or ("04", rec) in codes:
+            errs.append(f"jump-chain v4: write @{rec:08X} present — the rare-"
+                        f"landing records (side-flip/triple/long-jump) must stay "
+                        f"stock at every rate (reverted b1391e6 regression)")
 
     # h. Game-clock fix v15 — SELF-GATED (no BSE guard). Assert the block reads
     #    the framerate global 0x804167B8 and compares against 2.0f, then blr's.
@@ -4015,6 +4220,7 @@ def main():
     ap.add_argument("--no-boidfix", action="store_true", help="omit the boid flocking 30Hz gate (fish schools/butterflies take fixed-size steps per rendered frame: the Gelato reef red-coin school swims and flees Mario at FPS/30 x speed)")
     ap.add_argument("--no-shimmer", action="store_true", help="omit the heat-haze shimmer pace fix (catalog item 28; self-gated on the framerate global != native 0.5f, safe to leave on)")
     ap.add_argument("--no-peekgate", action="store_true", help="omit the EFB peek 30Hz gates (Mario occlusion GXPeekARGB + sun-flare GXPeekZ sampler at render rate; each peek is a synchronous pipeline stall on Dolphin/Metal — measured ~58 VPS at a 240 target)")
+    ap.add_argument("--no-runaway", action="store_true", help="omit the Shadow Mario chase run-away 60Hz gate (Pinna intro chase: TEMario's per-rendered-frame escape state machine runs G x fast, so he drifts off path, jams into a wall, and the schedule's own position-snap teleports him forward; the fix runs the AI on 1-in-G frames = native 60Hz)")
     ap.add_argument("--bse", action="store_true", help="emit the BSE companion bundle (guarded blocks for the Better Sunshine Engine online mod; fps must be 120 or 240 - see bse_supported())")
     ap.add_argument("--sun-probe", action="store_true", help="NOP the sun lens-flare EFB probe (measured no gain; breaks the flare)")
     ap.add_argument("--bare", action="store_true", help="emit hex pairs only, ready for gecko.py --code-file")
@@ -4039,7 +4245,7 @@ def main():
                        audio_pump=not a.no_audio_pump, thp_pace_fix=not a.no_thp_pace,
                        riccohook=not a.no_riccohook, wipe_swap=not a.no_wipe_swap,
                        shimmer=not a.no_shimmer, boidfix=not a.no_boidfix,
-                       peekgate=not a.no_peekgate)
+                       peekgate=not a.no_peekgate, runawayfix=not a.no_runaway)
 
     if a.check:
         nblocks, errs = check(bundle, a.fps, bse=a.bse)

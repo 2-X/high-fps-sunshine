@@ -389,6 +389,22 @@ J3D_GUARD_CODE = "\n".join([
     "4E800420 00000000",
 ])
 
+# ---- MActor::perform null-this guard body (see HARDENING_FIXES below) --------
+# Canonical copy + full RE: research/codes/mactor-perform-null-guard-v1.txt.
+# MActor::perform (0x802391bc) is called on a NULL actor on some cue paths and
+# reads this+0x39 with no null check -> "Invalid read 0x00000039 PC 0x802392c4".
+# Entry guard: cmpwi r3,0 at the prologue (first insn mflr r0, LR still the
+# caller, no frame yet); null -> blr (clean no-op return); non-null re-execs the
+# original mflr r0. Base main.dol both discs; framerate-independent; always on.
+MACTOR_GUARD_TITLE = ("MActor perform null-this guard v1 "
+                      "(skip perform when actor ptr is NULL)")
+MACTOR_GUARD_CODE = "\n".join([
+    "C22391BC 00000003",
+    "2C030000 40820008",
+    "4E800020 7C0802A6",
+    "60000000 00000000",
+])
+
 # ---- QOL toggles (user-facing) ---------------------------------------------
 # ONLY genuine quality-of-life / preference codes live here — the things you'd
 # actually want to turn on or off (camera, controls, save box, aim). The
@@ -461,6 +477,10 @@ HARDENING_FIXES = [
     # enabled the unsafe noki gate thinking it was the guard, guard silently
     # dropped — the exact freeze pairing the guard exists to prevent).
     ("j3dguard", r"^J3D duplicate-entry guard", True),
+    # MActor::perform on a NULL actor reads this+0x39 with no null check ->
+    # "Invalid read 0x00000039 PC 0x802392c4". Entry guard blr's on null this
+    # (perform is a no-op on a missing actor). Base main.dol, both discs.
+    ("mactorguard", r"^MActor perform null-this guard", True),
 ]
 
 #   key, regex, verified
@@ -498,11 +518,37 @@ BASELINE_FIXES = [
     # duplicate-entry guard (HARDENING_FIXES enables it every launch); if
     # Bianco freezes with this on, flip to False and relaunch.
     ("noki",      r"^Noki pollution 30Hz gate BSE-\d+ v6",   True),
-    # John's 2026-08-28 A/B: the double/triple-jump chain window is 16 raw
-    # ticks consumed at the BSE status-machine cadence (120Hz) — 4x too short
-    # at every kit rate. x4 restore at the jumpSlipEvents threshold compare
-    # (USA 0x80258D60), guarded. HANDOFF-JUMPCHAIN-BUG.md.
-    ("jumpchain", r"^Jump-chain window x4 BSE",              False),
+    # --- the jump-chain / landing-lag pair (v4 split, 2026-08-29) -----------
+    # THE LANDING LAG IS THIS FAMILY. mStatusTimer is the only timer in
+    # jumpSlipEvents, so the chain window IS the post-landing slip lockout:
+    # every code that widens a JumpSlipRecord mMaxTimer lengthens the state you
+    # are stuck in on landing. Bare BSE-120 = 16 ticks @120Hz = 133ms (the
+    # snappy feel); v1/v2's x4 = 533ms = the reported stun; v3's x2 = 267ms,
+    # still 2x the stock BSE state.
+    #
+    # 2026-08-29, Kris, live at BSE-120 with BOTH of these OFF: "landing lag
+    # didn't happen on restart." That is the confirmed-good baseline — it is
+    # what stock BSE does with no jumpslip code at all. Do NOT flip either of
+    # these to True without an in-game A/B; turning `jumpchain` on is exactly
+    # how the stun comes back.
+    #
+    # v3 shipped both halves welded into ONE code, and this toggle defaulted
+    # False, so the momentum retune had never executed once either — three
+    # rounds of "landing fixes" where nothing was ever enabled. v4 splits them.
+    #
+    # Regexes are version-pinned to v4 (v1/v2 "x4", v3 "x2 + landing momentum"
+    # are superseded; matching two titles at once is AMBIGUOUS -> enable-none).
+    # HANDOFF-JUMPCHAIN-BUG.md.
+    #
+    # Widens the 3 chain records 16 -> 32 ticks. Makes the triple jump easy
+    # (John's 2026-08-28 A/B) at the cost of doubling the landing state.
+    ("jumpchain", r"^Jump-chain window x2 BSE-\d+ v4",       False),
+    # jumpSlipCommon's 0.98-per-tick mForwardVel friction retuned to
+    # 0.98**(1/k), k = min(fps,120)/30 — so k BSE status ticks bleed the same
+    # speed as one native 30Hz tick. Independent of the window above. UNTESTED
+    # in-game (it has literally never run); off until the landing baseline is
+    # re-confirmed with it on.
+    ("landingmomentum", r"^Landing momentum BSE-\d+ v4",     False),
     # Petey's anim-rate site split out of the quarantined blanket family: the
     # v16-era block at 0x800955CC was in-game-confirmed, and Petey runs fast
     # under bare BSE (not natively compensated). The "Raw anim-rate" family

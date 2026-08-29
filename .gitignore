@@ -54,6 +54,10 @@ sunshine/bsmso/bse-release/
 # Our GPL-3.0 BSE fork build — do not redistribute until bse-fork source is public
 sunshine/bsmso/BetterSunshineEngine-highfps-v400.kxe
 
+# Sibling project — its own tree; work/disc/ holds copyrighted disc bundles.
+# Never publish from the sunshine repo.
+high-fps-godzilla/
+
 # ── Local per-machine files (never committed) ────────────────────────────────
 # Local-only Dolphin per-machine backup (auto-created by launcher)
 sunshine/dolphin-patches/_mac-local-backup-*/

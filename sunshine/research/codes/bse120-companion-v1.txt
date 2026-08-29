@@ -18,6 +18,55 @@
 #   does NOT resolve (the guard runs inside the cave, not at install time). Run
 #   this OR the stock bundle, never both.
 #
+# v7 CHANGES (regen 2026-08-29 — jump-chain v3 SPLIT into v4a/v4b)
+#   ROOT CAUSE OF "THE LANDING FIX NEVER LANDED": v3 shipped the window
+#   widening and the momentum retune welded into ONE code, and the launcher
+#   toggle gating it (config.py BSE_FIXES "jumpchain") defaulted False. The
+#   block was written into [Gecko] on every launch and never once added to
+#   [Gecko_Enabled] — verified in the live INI 2026-08-29. So NEITHER half had
+#   ever executed, through three rounds of "landing fixes".
+#   And the landing lag was the family itself, not a missing fix: mStatusTimer
+#   is the ONLY timer in jumpSlipEvents (lhz r5,0x86(r3) @0x80258D50 vs
+#   lha r0,0(r4) @0x80258D60), so the chain window IS the post-landing slip
+#   lockout. Stock BSE-120 = 16 ticks @120Hz = 133ms (snappy). v1/v2's x4 =
+#   533ms = the reported stun. v3's x2 = 267ms, still 2x stock.
+#   Kris, live at BSE-120 with the whole family DISABLED, 2026-08-29:
+#   "landing lag didn't happen on restart." Confirmed-good baseline = OFF.
+#   - "$Landing momentum BSE-120 v4" — the 04 write of 0.98**(1/4) = 3F7EB5D5
+#     to 0x80415D24 (jumpSlipCommon's per-tick mForwardVel friction). Own
+#     guard + terminator, own toggle "landingmomentum", default OFF. UNTESTED
+#     in-game: it has literally never run.
+#   - "$Jump-chain window x2 BSE-120 v4" — the three 02 writes of 32 to the
+#     chain records. Own toggle "jumpchain", default OFF. This is the
+#     TRIPLE-JUMP knob and the ONLY thing in the kit that re-introduces the
+#     landing stun; flip it on only with an in-game A/B.
+#   - switch_rate STALE_TITLES purges the v3 title ("... x2 + landing momentum
+#     ..."), a spelling neither v4 title carries.
+#
+# v6 CHANGES (regen 2026-08-28 late — jump-chain v3)
+#   - Jump-chain window x2 + landing momentum v3 REPLACES v2. Disassembly of
+#     TMario::jumpSlipEvents showed the chain window and the post-landing slip
+#     lockout are the SAME counter (mStatusTimer, mario+0x86, vs rec->mMaxTimer
+#     @0x80258D60/64) and that the three records v2 scaled are ALSO the three
+#     COMMON landings (normal jump / fall / double jump) — so v2's x4 bought the
+#     triple jump with a 533ms lockout on every ordinary landing. v3 uses a
+#     CONSTANT x2 (16 -> 32 ticks = 267ms) at every rate: the FPS_60 bundle is
+#     unchanged, 120/240 halve from 64 to 32.
+#   - NEW in v3: the real momentum bug. TMario::jumpSlipCommon @0x80258E5C
+#     multiplies mForwardVel by 0.98 PER STATUS TICK (lfs f0,-0xE7C(r2) ->
+#     0x80415D24 @0x80258E9C), a 30 Hz-calibrated constant, so run speed bleeds
+#     off k = min(fps,120)/30 times too fast in wall clock. Fixed with a plain
+#     Gecko 04 write of 0.98**(1/k) — 3F7D6D54 at 60, 3F7EB5D5 at 120/240. Safe
+#     as a data write: a full-DOL scan (r2/r13-relative + lis/addi absolute, base
+#     AND BSE-release main.dol) finds EXACTLY ONE reader of that literal.
+#   - REVERTED: the b1391e6 block that scaled the rare-landing records
+#     0x803DD254/268/27C at fps<120. Those are side-flip / triple / long-jump
+#     landings, not the reported stun. They are stock again at every rate and
+#     --check now REJECTS any write to them.
+#   - Also picked up in this regen (the committed file had gone stale since
+#     2026-08-27): $Boid flocking 30Hz gate BSE-120, and the em-dashes in the
+#     noki title are proper UTF-8 again (the previous regen mangled them).
+#
 # v5 CHANGES (regen 2026-08-28 — jump-chain v2)
 #   - -chain window x4 v2 REPLACES v1 (231e53f). v1 was a C2 at the
 #     shared lha 0x80258D60 scaling EVERY JumpSlipRecord mMaxTimer x4 — it
@@ -103,7 +152,7 @@
 #   GUARDED (==2.0f prologue): particle parity, noki gate + copy gate, StarFix,
 #     wipe pace, SE frame-process, EFB peek gate, bird walk accel, Poink v14.
 #
-# 37 C2 blocks; C2 cave usage 468 words / 1872 bytes. Divisors FPS/30 = 4.
+# 38 C2 blocks; C2 cave usage 484 words / 1936 bytes. Divisors FPS/30 = 4.
 #   Verified via fpspatch.py 120 --bse --check (capstone decode + C2 layout law +
 #   guard/self-gate presence + divisors + anmrate SDA disp -0x3E8 + peek-gate
 #   entry/blr shape + byte-identity).
@@ -140,7 +189,7 @@ C2288DEC 00000008
 4082000C C002DD68
 EC21002A FC00081E
 60000000 00000000
-$Noki pollution 30Hz gate BSE-120 v6 (safe with the J3D duplicate-entry guard â€” REQUIRES it enabled; NEEDS-TEST under BSE)
+$Noki pollution 30Hz gate BSE-120 v6 (safe with the J3D duplicate-entry guard — REQUIRES it enabled; NEEDS-TEST under BSE)
 C219D8F0 00000008
 3D808041 800C67B8
 3D604000 7C005800
@@ -295,11 +344,34 @@ C202E270 00000007
 918B1704 718C0003
 41820008 4E800020
 7C0802A6 00000000
-$Jump-chain window x4 BSE-120 v2 (chain records only; NEEDS-TEST)
+$Boid flocking 30Hz gate BSE-120 (guarded; NEEDS-TEST)
+C2005D1C 00000008
+3D808041 800C67B8
+3D604000 7C005800
+40820024 818D9FB8
+280C0000 41820018
+816C005C 71600001
+4182000C 70800000
+48000008 548007BD
+60000000 00000000
+$Shadow Mario chase run-away 60Hz gate BSE-120 (guarded; NEEDS-TEST)
+C2041620 00000007
+3D808041 800C67B8
+3D604000 7C005800
+40820020 3D608000
+818B1708 398C0001
+918B1708 718C0001
+41820008 4E800020
+7C0802A6 00000000
+$Landing momentum BSE-120 v4 (jumpSlipCommon 0.98/tick retuned to the BSE status cadence)
 204167B8 40000000
-023DD218 00000040
-023DD22C 00000040
-023DD240 00000040
+04415D24 3F7EB5D5
+E0000000 80008000
+$Jump-chain window x2 BSE-120 v4 (chain records only; LENGTHENS the landing state — triple-jump knob)
+204167B8 40000000
+023DD218 00000020
+023DD22C 00000020
+023DD240 00000020
 E0000000 80008000
 $Game-clock fix v15 BSE-120 (self-gated on 2.0f; NEEDS-TEST)
 C2348180 00000005

@@ -161,6 +161,12 @@ STATIC_BSE_CODES = [
     # fast path). v2 = chain-walk on the shape-list inserts (v1's head-check missed
     # weave cycles — freeze #6 was a 3-cycle).
     ("j3d-dup-entry-guard-v3.txt",    True),
+    # ALWAYS-ON engine-independent hardening: MActor::perform (0x802391bc) is
+    # called on a NULL actor on some cue paths and reads this+0x39 with no null
+    # check -> "Invalid read 0x00000039 PC 0x802392c4". Entry guard blr's on a
+    # null this (perform is a no-op on a missing actor). Base main.dol, both
+    # discs, framerate-independent.
+    ("mactor-perform-null-guard-v1.txt", True),
 ]
 
 # QOL titles that already live in the INI (both machines) and work under BSE:
@@ -186,12 +192,28 @@ MANAGED_RE = re.compile(
 # walk accel" candidates = ambiguous = enabled NONE). Same pattern as the
 # launcher's WS2D_TITLE_STALE.
 STALE_TITLES = [
-    # jump-chain v1 (231e53f): C2 at the shared lha scaled ALL six
-    # JumpSlipRecords — landing/getup stun collateral (Kris 2026-08-28).
-    # Superseded by v2 (data writes, chain records only). Prefix-matched:
-    # the "(guarded" suffix distinguishes v1 from the v2 title.
-    "Jump-chain window x4 BSE-120 (guarded",
-    "Jump-chain window x4 BSE-240 (guarded",
+    # jump-chain v1 (231e53f) AND v2 (4822c6c), both superseded by v3
+    # ("Jump-chain window x2 + landing momentum BSE-<fps> v3"). v1 was a C2 at
+    # the shared lha that scaled ALL six JumpSlipRecords (landing/getup stun
+    # collateral, Kris 2026-08-28); v2 scaled the three chain records by
+    # min(fps,120)/30, which is x4 at 120/240 — but those same three records ARE
+    # the common landings and mStatusTimer is the only timer, so x4 = a 533ms
+    # lockout on every ordinary landing. Both v1 and v2 titles carry the "x4"
+    # spelling, so this rate-tagged PREFIX purges both; the v3 title says "x2"
+    # and is therefore NOT matched (STALE_TITLES is substring-matched against
+    # the live INI, so a prefix that also matched v3 would delete v3 on every
+    # run). Keep every future revision's title free of the "x4" spelling.
+    "Jump-chain window x4 BSE-60",
+    "Jump-chain window x4 BSE-120",
+    "Jump-chain window x4 BSE-240",
+    # jump-chain v3, superseded by the v4 SPLIT (2026-08-29). v3 welded the
+    # window widening and the jumpSlipCommon momentum retune into ONE code, so
+    # the two could never be A/B'd — and the launcher toggle that gated it
+    # defaulted OFF, so neither half ever executed. v4 ships them as
+    # "$Jump-chain window x2 BSE-<fps> v4" and "$Landing momentum BSE-<fps> v4".
+    # This purge string carries the "+ landing momentum" spelling that ONLY v3
+    # has, so it cannot eat either v4 title. Keep future revisions clear of it.
+    "Jump-chain window x2 + landing momentum",
     # pre-substep-pin 240 shapes (superseded by the 120 Hz-sim calibration)
     "Bird walk accel x2.83 BSE-240 (guarded; sqrt literal, NEEDS-TEST)",
     "Blue-coin lifetime v6-BSE-240 (keep 1-of-8; self-gated 4.0f; "

@@ -1,7 +1,62 @@
 # BUG: jump chain (double/triple jump) window scales with the render rate under BSE
 
 **Reported 2026-08-28 by John (120fps online client, fork disc, Radmin VPN join).**
-**Status: FIXED — v2 shipped 2026-08-28 (see below). The rest of this file is
+**Status 2026-08-29: CLOSED as a trade-off, not a fix. See RESOLUTION v4 below.**
+
+## RESOLUTION v4 (2026-08-29) — the landing lag WAS this family
+
+Two findings, both verified rather than reasoned:
+
+**1. Nothing here had ever executed.** The v3 code sat in the live
+`GMSE01.ini` `[Gecko]` section and was absent from `[Gecko_Enabled]` — checked
+directly against the INI Dolphin had written two minutes earlier. Cause:
+`smslaunch/config.py`'s `BSE_FIXES` row `("jumpchain", ..., False)`. The
+launcher rewrites the enabled set on every launch, so the block was installed
+and then never enabled, on every single boot. Three rounds of "landing fixes"
+(v1 → v2 → v3) were authored, regenerated, `--check`ed and documented without
+one line of them running in-game.
+
+**2. The landing lag is the widening itself — there is nothing to "fix".**
+`mStatusTimer` (mario+0x86, `lhz r5,0x86(r3)` @0x80258D50) is the ONLY timer in
+`jumpSlipEvents`, compared against `rec->mMaxTimer` (`lha r0,0(r4)`
+@0x80258D60). The chain window and the post-landing slip lockout are the same
+counter, so every mMaxTimer widening lengthens the state you are stuck in on
+landing:
+
+| config | slip state @ BSE-120 | verdict |
+|---|---|---|
+| stock BSE (no code) | 16 ticks @120Hz = **133ms** | **Kris 2026-08-29: "landing lag didn't happen on restart"** |
+| v3 (x2) | 32 ticks = 267ms | 2x the stock state |
+| v1/v2 (x4) | 64 ticks = 533ms | the reported stun |
+
+Vanilla is 16 ticks @30Hz = 533ms; BSE-120's 133ms is the "snappy" feel
+everyone had internalized. So the confirmed-good landing config is **the whole
+family OFF**, which is what shipped by accident and is what is live now.
+
+**What v4 changes.** v3's single welded code is split so the two halves can be
+A/B'd independently — they pull opposite directions on landing feel:
+
+- `$Landing momentum BSE-<fps> v4` — the `04` write of `0.98**(1/k)` to
+  `0x80415D24` (jumpSlipCommon's per-tick `mForwardVel` friction). Toggle
+  `landingmomentum`, default **OFF**. Never run in-game; this is the only
+  candidate left that could improve landing feel without lengthening the state.
+- `$Jump-chain window x2 BSE-<fps> v4` — the three `02` writes of 32 to the
+  chain records. Toggle `jumpchain`, default **OFF**. This is John's
+  triple-jump knob and the only thing in the kit that brings the stun back.
+
+`switch_rate.STALE_TITLES` purges the v3 title. `--check` OK at 60/120/240.
+
+**Open:** John's original complaint (triple jump impossible at 120) is
+UNFIXED by choice — the counter cannot give both an easy triple jump and a
+snappy landing. If John wants the window, he enables `jumpchain` on his own
+client and accepts 267ms landings; it is a per-client toggle, not a shared-code
+decision. A real fix needs a second timer (e.g. a C2 that lets the A-press
+chain check run past `mMaxTimer` while the timeout exit keeps the stock 16),
+which nobody has built.
+
+---
+
+**Status 2026-08-28 (superseded): FIXED — v2 shipped. The rest of this file is
 the original diagnosis, kept for the record.**
 
 ## RESOLUTION (2026-08-28, two rounds)
