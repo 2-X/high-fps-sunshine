@@ -1,0 +1,13 @@
+#!/bin/bash
+# Steam (Gaming Mode) entry point:  sms-deck offline | online | solo | "<profile name>"
+# Add it as a non-Steam game with the mode as the launch option — see
+# add-steam-shortcuts.py. Everything is logged; a blocking problem (missing
+# disc, unreachable server) is also shown as a dialog.
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+LOG_DIR="$HOME/.local/share/sms-high-fps/logs"
+mkdir -p "$LOG_DIR"
+MODE="${1:-offline}"
+# Steam's overlay preload is 32/64-bit specific and only produces loader noise
+# in the helper processes; Dolphin runs in its own sandbox either way.
+unset LD_PRELOAD
+exec python3 -u "$HERE/deck_launch.py" "$@" > "$LOG_DIR/launch-${MODE// /-}.log" 2>&1
