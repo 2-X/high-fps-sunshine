@@ -61,7 +61,13 @@ CODES_DIR = os.path.join(REPO, "sunshine", "research", "codes")
 NEVER_ENABLE = ("CRASHES", "FREEZES", "Raw anim-rate", "Animal x4", "Force",
                 "UNVERIFIED")
 
-if sys.platform.startswith("win"):
+if os.environ.get("SMS_DOLPHIN_USER"):
+    # Same override the launcher and gecko.py honor: a Dolphin user dir that is
+    # not the platform default (the Steam Deck's `-u` directory).
+    _USER = os.path.expanduser(os.environ["SMS_DOLPHIN_USER"])
+    GAME_INI = os.path.join(_USER, "GameSettings", "GMSE01.ini")
+    DOLPHIN_INI = os.path.join(_USER, "Config", "Dolphin.ini")
+elif sys.platform.startswith("win"):
     APPDATA = os.environ.get("APPDATA", "")
     GAME_INI = os.path.join(APPDATA, "Dolphin Emulator", "GameSettings", "GMSE01.ini")
     DOLPHIN_INI = os.path.join(APPDATA, "Dolphin Emulator", "Config", "Dolphin.ini")

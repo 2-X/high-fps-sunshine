@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ from . import codegen
 from .inieditor import Ini, dolphin_running
 
 WIN = sys.platform == "win32"
+LINUX = sys.platform.startswith("linux")
 TMP = tempfile.gettempdir()          # /tmp on the Mac, %TEMP% on Windows
 
 
@@ -485,6 +487,19 @@ def apply(profile: dict, *, log=_noop, force=False):
 
 
 # -------------------------------------------------------------------- launch
+def find_dotnet():
+    """The `dotnet` host on Linux: PATH, then $DOTNET_ROOT, then the per-user
+    dotnet-install.sh location (~/.dotnet — SteamOS has no system package)."""
+    cands = [shutil.which("dotnet")]
+    if os.environ.get("DOTNET_ROOT"):
+        cands.append(os.path.join(os.environ["DOTNET_ROOT"], "dotnet"))
+    cands.append(str(Path.home() / ".dotnet" / "dotnet"))
+    for c in cands:
+        if c and os.access(c, os.X_OK):
+            return c
+    return None
+
+
 def _spawn(cmd, cwd, logpath):
     lf = open(logpath, "ab")
     return subprocess.Popen(cmd, cwd=str(cwd), stdout=lf, stderr=lf,
@@ -516,6 +531,17 @@ def launch(profile: dict, *, log=_noop):
     log(f"Booting {iso.name} …")
     if WIN:
         subprocess.Popen([str(C.DOLPHIN_APP), "-e", str(iso)])
+    elif LINUX:
+        # DOLPHIN_APP is the binary or a wrapper script (Steam Deck: the
+        # Flatpak-runtime wrapper, sunshine/deck/dolphin-deck). A sandboxed
+        # start takes a moment to show up as a process, and the helpers
+        # spawned below exit at once when they find no Dolphin — wait for it.
+        subprocess.Popen([str(C.DOLPHIN_APP), "-e", str(iso)],
+                         start_new_session=True)
+        for _ in range(60):
+            if dolphin_running():
+                break
+            time.sleep(0.25)
     else:
         subprocess.run(["open", "-a", str(C.DOLPHIN_APP), "--args", "-e", str(iso)])
 
@@ -583,6 +609,17 @@ def launch(profile: dict, *, log=_noop):
                     "cannot join.")
                 time.sleep(3)
         else:
+            dotnet = find_dotnet() if LINUX else None
+            if LINUX and not C.SERVER_DLL.exists():
+                raise RuntimeError(
+                    f"No server bundle at {C.BUNDLE_SERVER} — expand "
+                    "bundle-server.zip there, or set server_addr/SMS_SERVER "
+                    "to the host's LAN IP to join.")
+            if LINUX and not dotnet:
+                raise RuntimeError(
+                    "dotnet runtime not found — install one (>= 8) with "
+                    "dotnet-install.sh into ~/.dotnet (see sunshine/deck/"
+                    "README.md).")
             sp = subprocess.run(["pgrep", "-f", "SMSO.ServerHost"],
                                 capture_output=True, text=True).stdout.split()
             if sp:
@@ -597,8 +634,13 @@ def launch(profile: dict, *, log=_noop):
                     log(f"Server already running (healthy, {cpu.strip()}% CPU).")
             if not sp:
                 log("Starting BSMSO server…")
-                _spawn(["/bin/zsh", str(C.RUN_SERVER)], C.MAC_ONLINE,
-                       os.path.join(TMP, "smso-server.log"))
+                if LINUX:
+                    # run_server.sh pins the Mac's Homebrew DOTNET_ROOT.
+                    _spawn([dotnet, str(C.SERVER_DLL)], C.BUNDLE_SERVER,
+                           os.path.join(TMP, "smso-server.log"))
+                else:
+                    _spawn(["/bin/zsh", str(C.RUN_SERVER)], C.MAC_ONLINE,
+                           os.path.join(TMP, "smso-server.log"))
                 time.sleep(3)
             # The server busy-waits (600%+ CPU with clients attached) and starves
             # Dolphin below the target FPS. Until the spin is fixed at source, pin

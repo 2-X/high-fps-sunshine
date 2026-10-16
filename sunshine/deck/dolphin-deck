@@ -1,0 +1,12 @@
+#!/bin/bash
+# Steam Deck "dolphin_app" for the launcher: run the patched build inside the
+# Dolphin Flatpak's runtime (see build-dolphin.sh), with its own user dir so
+# the stock Dolphin's settings and saves are never touched.
+#   -u  dedicated user dir (the layout the launcher expects: Config/, GameSettings/)
+#   -b  batch mode: no main window, exit when emulation stops (Gaming Mode)
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
+BIN="$REPO/dolphin/build/Binaries/Dolphin"
+USERDIR="${SMS_DOLPHIN_USER:-$HOME/.local/share/sms-high-fps/dolphin}"
+[ -x "$BIN" ] || { echo "patched Dolphin not built: run sunshine/deck/build-dolphin.sh" >&2; exit 1; }
+exec flatpak run --filesystem=host --command="$BIN" org.DolphinEmu.dolphin-emu \
+  -u "$USERDIR" -b "$@"

@@ -38,7 +38,12 @@ Every mutating op backs up the INI to <ini>.bak first.
 """
 import argparse, os, re, subprocess, sys, shutil
 
-if sys.platform == "win32":
+if os.environ.get("SMS_DOLPHIN_USER"):
+    # Same override the launcher honors (smslaunch.config): a Dolphin user dir
+    # that is not the platform default, e.g. the Steam Deck's `-u` directory.
+    USER_INI = os.path.join(os.path.expanduser(os.environ["SMS_DOLPHIN_USER"]),
+                            "GameSettings", "GMSE01.ini")
+elif sys.platform == "win32":
     USER_INI = os.path.join(os.environ.get("APPDATA", ""),
                             "Dolphin Emulator", "GameSettings", "GMSE01.ini")
 else:
